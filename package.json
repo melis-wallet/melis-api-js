@@ -1,0 +1,31 @@
+{
+  "name": "melis-api-js",
+  "version": "0.9.0",
+  "description": "Melis Javascript API bindings",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "melis",
+    "bitcoin",
+    "wallet"
+  ],
+  "devDependencies": {
+    "browserify": "latest",
+    "jshint": "latest",
+    "mocha": "2.2.x",
+    "uglify-js": "latest"
+  },
+  "dependencies": {
+    "bitcoinjs-lib": "^2.1.4",
+    "detect-node": "^2.0.3",
+    "q": "1.x",
+    "randombytes": "^2.0.1",
+    "sjcl-all": "^1.0.1",
+    "sockjs-client": "1.0.x",
+    "stompjs": "2.3.x"
+  },
+  "author": "Alessandro Polverini <a.polverini@melis.io>",
+  "license": "ISC"
+}
