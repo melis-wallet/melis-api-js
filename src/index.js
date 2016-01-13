@@ -1,6 +1,5 @@
-module.exports = {
-  MelisApi: require('./cm'),
-  C: require('./cm-constants'),
-  Buffer: Buffer
-};
+module.exports = require('./cm');
+//module.exports = {
+//  MelisApi: require('./cm')
+//};
 

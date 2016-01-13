@@ -1,8 +1,7 @@
 {
   "name": "melis-api-js",
-  "version": "0.9.0",
   "description": "Melis Javascript API bindings",
-  "main": "index.js",
+  "main": "src/index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -20,6 +19,8 @@
   "dependencies": {
     "bitcoinjs-lib": "^2.1.4",
     "detect-node": "^2.0.3",
+    "es6-promise": "^3.0.2",
+    "isomorphic-fetch": "^2.2.0",
     "q": "1.x",
     "randombytes": "^2.0.1",
     "sjcl-all": "^1.0.1",

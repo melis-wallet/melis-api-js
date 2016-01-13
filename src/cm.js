@@ -127,9 +127,7 @@ function CM(config) {
 }
 
 CM.prototype = Object.create(events.EventEmitter.prototype);
-CM.prototype.Q = Q;
-CM.prototype.Bitcoin = Bitcoin;
-CM.prototype.sjcl = sjcl;
+
 CM.prototype.getRpcTimeout = function () {
   return this.rpcTimeout;
 };
@@ -1649,4 +1647,8 @@ CM.prototype.derivePubKeys = function (xpubs, chain, hdIndex) {
   return derivePubKeys(xpubs, chain, hdIndex, this.bitcoinNetwork);
 };
 
+CM.C = C;
+CM.Q = Q;
+CM.Bitcoin = Bitcoin;
+CM.sjcl = sjcl;
 module.exports = CM;
