@@ -28,5 +28,6 @@
     "stompjs": "2.3.x"
   },
   "author": "Alessandro Polverini <a.polverini@melis.io>",
-  "license": "ISC"
+  "license": "ISC",
+  "version": "0.8.11"
 }
