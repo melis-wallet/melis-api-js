@@ -1,0 +1,39 @@
+{
+  "name": "melis-api-js",
+  "description": "Melis Javascript API bindings",
+  "author": "Alessandro Polverini <a.polverini@melis.io>",
+  "license": "ISC",
+  "version": "0.8.16",
+  "main": "src/index.js",
+  "keywords": [
+    "melis",
+    "bitcoin",
+    "multisig",
+    "multisignature",
+    "wallet"
+  ],
+  "engines": {
+    "node": ">=4.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/melis-wallet/melis-api-js.git"
+  },
+  "devDependencies": {
+    "browserify": "latest",
+    "jshint": "latest",
+    "mocha": "latest",
+    "uglify-js": "latest"
+  },
+  "dependencies": {
+    "bitcoinjs-lib": "^2.3.0",
+    "detect-node": "^2.0.3",
+    "ecurve": "^1.0.4",
+    "fetch-ponyfill": "^3.0.2",
+    "q": "1.x",
+    "randombytes": "^2.0.3",
+    "sjcl-all": "^1.0.1",
+    "sockjs-client": "1.1.x",
+    "stompjs": "2.3.x"
+  }
+}
