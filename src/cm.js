@@ -520,7 +520,7 @@ function stompDisconnected(self, frame, deferred, disableReconnect) {
   self.waitinReplies = {}
   this.connecting = false
 
-  if (disableReconnect)
+  if (disableReconnect || self.paused)
     return
 
   if (self.autoReconnectDelay > 0 && self.autoReconnectFunc === null) {
@@ -536,6 +536,7 @@ function stompDisconnected(self, frame, deferred, disableReconnect) {
 CM.prototype.connect = function (config) {
   if (this.connecting)
     return Q()
+  this.paused = false
   this.connecting = true
   var self = this
   if (this.autoReconnectFunc) {
@@ -674,6 +675,7 @@ CM.prototype.networkOffline = function () {
 
 CM.prototype.hintDevicePaused = function () {
   disableKeepAliveFunc(this)
+  this.paused = true
   if (this.connected)
     this.sessionSetParams({paused: true})
   return Q()
@@ -681,6 +683,7 @@ CM.prototype.hintDevicePaused = function () {
 
 CM.prototype.verifyConnectionEstablished = function (timeout) {
   var self = this
+  this.paused = false
   if (!timeout || timeout < 0)
     timeout = 5
   if (timeout > this.maxKeepAliveSeconds)
