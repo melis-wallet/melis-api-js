@@ -142,6 +142,9 @@ function initializePrivateFields(target) {
   target.lastOpenParams = null
   target.cmConfiguration = null // Got from server at connect
   target.bitcoinNetwork = Bitcoin.networks.testnet // Overridden from server at connect
+  target.connected = false
+  target.connecting = false
+  target.paused = false
 }
 
 function addPagingInfo(pars, pagingInfo) {
@@ -160,10 +163,12 @@ function simpleRandomInt(max) {
   return Math.floor(Math.random() * max)
 }
 
-function handleConnectionLoss(target, disableReconnect) {
+function handleConnectionLoss(target) {
+  if (!target.connected)
+    return Q()
   var deferred = Q.defer()
   target.stompClient.disconnect(function (res) {
-    stompDisconnected(target, res, null, disableReconnect)
+    stompDisconnected(target, res, null)
     deferred.resolve()
   })
   return deferred.promise
@@ -503,7 +508,7 @@ function disableAutoReconnect(self) {
   }
 }
 
-function stompDisconnected(self, frame, deferred, disableReconnect) {
+function stompDisconnected(self, frame, deferred) {
   self.log("[CM] Connection lost: " + frame)
   self.connected = false
   self.cmConfiguration = null
@@ -520,7 +525,7 @@ function stompDisconnected(self, frame, deferred, disableReconnect) {
   self.waitinReplies = {}
   this.connecting = false
 
-  if (disableReconnect || self.paused)
+  if (self.paused)
     return
 
   if (self.autoReconnectDelay > 0 && self.autoReconnectFunc === null) {
@@ -646,7 +651,6 @@ CM.prototype.connect_internal = function (stompEndpoint, config) {
 
 CM.prototype.disconnect = function () {
   var self = this
-  this.autoReconnectDelay = 0
   disableKeepAliveFunc(self)
   disableAutoReconnect(self)
   if (!this.connected)
@@ -654,7 +658,6 @@ CM.prototype.disconnect = function () {
   var deferred = Q.defer()
   this.stompClient.disconnect(function (res) {
     //self.log("[STOMP] Disconnect: " + res)
-    self.connected = false
     initializePrivateFields(self)
     deferred.resolve(res)
   })
@@ -670,7 +673,8 @@ CM.prototype.networkOnline = function () {
 
 CM.prototype.networkOffline = function () {
   disableKeepAliveFunc(this)
-  return handleConnectionLoss(this, true)
+  this.paused = true
+  return handleConnectionLoss(this)
 }
 
 CM.prototype.hintDevicePaused = function () {
