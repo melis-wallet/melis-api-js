@@ -12,9 +12,6 @@
     "multisignature",
     "wallet"
   ],
-  "engines": {
-    "node": ">=4.0.0"
-  },
   "repository": {
     "type": "git",
     "url": "https://github.com/melis-wallet/melis-api-js.git"

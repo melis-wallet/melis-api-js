@@ -1571,11 +1571,16 @@ CM.prototype.analyzeTx = function (state, options) {
   }
 
   // Calc amount for defined recipients, for the change, and to unknown addresses
-  // Mark our recipients to verify that none is left
+
+  // If recipients are Melis accounts we need to trust the server
+  for (j = 0; j < recipients.length; j++)
+    if (recipients[j].pubId)
+      recipients[j].validated = true
+
+  // Mark our recipients to verify that none is left out
   for (i = 0; i < tx.outs.length; i++) {
     var output = tx.outs[i]
     var toAddr = this.decodeAddressFromScript(output.script)
-    this.log("[Analyze] Output #" + i + " to: " + toAddr + " amount: " + output.value + " script: " + output.script.buffer.toString('hex'))
     var isChange = false
     for (j = 0; j < changes.length; j++) {
       if (toAddr === changes[j].aa.address) {
@@ -1583,11 +1588,14 @@ CM.prototype.analyzeTx = function (state, options) {
         isChange = true
         break
       }
+      this.log("[Analyze] Output #" + i + " to: " + toAddr + " amount: " + output.value + " isChange: " + isChange)
     }
     if (!isChange) {
       var isRecipient = false
       for (j = 0; j < recipients.length; j++) {
         var recipient = recipients[j]
+        if (recipient.pubId)
+          continue
         if (toAddr === recipient.address) {
           if (recipient.isRemainder || output.value === recipient.amount) {
             amountToRecipients += output.value
@@ -1605,24 +1613,26 @@ CM.prototype.analyzeTx = function (state, options) {
   }
 
   // Verify that all recipients have been validated
-  for (i = 0; i < recipients.length; i++)
-    if (!recipients[i].validated)
-      error = "Missing recipient"
+  if (!error)
+    for (i = 0; i < recipients.length; i++)
+      if (!recipients[i].validated)
+        error = "Missing recipient"
   var extimatedTxSize = this.estimateTxSize(account, tx)
   var maximumAcceptableFee = extimatedTxSize * this.fees.maximumAcceptable
-  var fees = amountInOur - amountToRecipients - amountToChange
-  if (fees > maximumAcceptableFee)
-    error = "Fees too high"
-  else if (fees !== ptx.fees)
-    error = "Calculated fees does not match server info"
-  else if (amountToRecipients + amountToUnknown > 0 && fees > amountToRecipients + amountToUnknown)
+  var fees = amountInOur - amountToRecipients - amountToChange - amountToUnknown
+  if (!error)
+    if (fees > maximumAcceptableFee)
+      error = "Fees too high"
+    else if (fees !== ptx.fees)
+      error = "Calculated fees does not match server info"
+    else if (amountToRecipients + amountToUnknown > 0 && fees > amountToRecipients + amountToUnknown)
 //  else if (fees > amountToChange &&
 //          (fees > (amountToRecipients + amountToUnknown) || (amountToRecipients === 0 && amountToUnknown === 0)))
-    error = "Fees (" + fees + ") would be greater than total outputs of transaction (" + amountToRecipients + "/" + amountToUnknown + "/" + amountToChange + ")"
-  else if (!this.areAddressesOfAccount(account, changes))
-    error = "Change address not validated"
-  else if (amountToUnknown !== 0)
-    error = "Destination address not validated"
+      error = "Fees (" + fees + ") would be greater than total outputs of transaction (" + amountToRecipients + "/" + amountToUnknown + "/" + amountToChange + ")"
+    else if (!this.areAddressesOfAccount(account, changes))
+      error = "Change address not validated"
+//    else if (amountToUnknown !== 0)
+//      error = "Destination address not validated"
   this.log("[ANALYZE] to-dest: " + amountToRecipients + " to-change: " + amountToChange + " to-other: " + amountToUnknown
           + " fees: " + fees + " maxAcceptableFees: " + maximumAcceptableFee + " extimatedTxSize: " + extimatedTxSize + " error: " + error)
   return {
