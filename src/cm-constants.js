@@ -160,6 +160,7 @@ C.UTILS_PONG = C.PREFIX_UTILS_METHODS + "pong"
 C.UNHANDLED_EVENT = 'unhandled'
 C.EVENT_CONNECT = 'connect'
 C.EVENT_DISCONNECT = 'disconnect'
+C.EVENT_SESSION_RESTORED = 'sessionRestored'
 C.EVENT_BLOCK = 'block'
 C.EVENT_NEW_SESSION = 'newSession'
 C.EVENT_CLOSE_SESSION = 'closeSession'

@@ -636,6 +636,7 @@ CM.prototype.connect_internal = function (stompEndpoint, config) {
       if (self.lastOpenParams) {
         self.walletOpen(self.lastOpenParams.seed, self.lastOpenParams).then(function () {
           deferred.resolve(self.cmConfiguration)
+          emitEvent(self, C.EVENT_SESSION_RESTORED, self.cmConfiguration)
         })
       } else
         deferred.resolve(self.cmConfiguration)
@@ -761,7 +762,6 @@ CM.prototype.getWalletChallenge = function () {
 //
 
 CM.prototype.decodeTxFromBuffer = function (buf) {
-  //return Bitcoin.Transaction.fromHex(rawTx)
   return Bitcoin.Transaction.fromBuffer(buf)
 }
 
