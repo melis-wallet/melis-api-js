@@ -169,7 +169,7 @@ function handleConnectionLoss(target) {
     return Q()
   var deferred = Q.defer()
   target.stompClient.disconnect(function (res) {
-    //stompDisconnected(target, res, null)
+    stompDisconnected(target, res, null)
     deferred.resolve()
   })
   return deferred.promise
