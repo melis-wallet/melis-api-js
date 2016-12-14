@@ -97,8 +97,9 @@ cm.connect().then((config) => {
 })
 ```
 
-The second user runs this script with the joinCode got from the first script and join the multiuser/multisig account
-node <script> <joincode>
+The second user runs this script with the joinCode got from the first script and join the multiuser/multisig account:
+
+> node script "joincode"
 
 ```javascript
 var CM = require('../src/cm')
