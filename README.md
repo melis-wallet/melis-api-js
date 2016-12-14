@@ -6,7 +6,9 @@ This library provides a JavaScript API to access the remote Melis STOMP APIs
 and easily access the advanced multisig and realtime notification features
 of a Bitcoin Melis wallet.
 
-### Example usage
+## Examples usage
+
+### Receive funds
 This simple code will:
 * Open an existing wallet with at least an account
 * ask for an unused address
@@ -48,6 +50,78 @@ cm.connect().then((config) => {
 }).then(res => {
   myAddress = res.address
   console.log("Waiting for TEST coins to " + myAddress + " -- Press ctrl-c to exit")
+}).catch(error => {
+  console.log("Unexpected exception: ", error)
+})
+```
+
+### Multiuser account
+First user runs this script that:
+* registers a new wallet
+* create a 1of2 account and a join code for the second user
+* waits for the second user to join the account (thus rendering the account functional)
+
+```javascript
+var CM = require('../src/cm')
+var C = CM.C
+var cm = new CM({apiDiscoveryUrl: C.MELIS_TEST_DISCOVER})
+var seed = cm.random32HexBytes()
+
+cm.on(C.EVENT_JOINED, res => {
+  console.log("Cosigner joined: " + res.activationCode.pubId + ", the account is ready!")
+  cm.disconnect()
+})
+
+cm.log = function () {} // Disable logs
+
+cm.connect().then((config) => {
+  console.log("Connected to server. Blockchain height: " + config.topBlock.height)
+  return cm.walletRegister(seed)
+}).then(wallet => {
+  console.log("Wallet opened with seed: " + seed)
+  return cm.accountCreate({
+    type: C.TYPE_MULTISIG_MANDATORY_SERVER,
+    cosigners: [{name: 'Frank'}],
+    minSignatures: 1}
+  )
+}).then(res => {
+  var cosigners = res.accountInfo.cosigners
+  let joinCode
+  cosigners.forEach(info => {
+    if (info.name === 'Frank')
+      joinCode = info.code
+  })
+  console.log("Waiting for cosigner with join code " + joinCode + " to join my account -- Press ctrl-c to exit")
+}).catch(error => {
+  console.log("Unexpected exception: ", error)
+})
+```
+
+The second user runs this script with the joinCode got from the first script and join the multiuser/multisig account
+node <script> <joincode>
+
+```javascript
+var CM = require('../src/cm')
+var C = CM.C
+var cm = new CM({apiDiscoveryUrl: C.MELIS_TEST_DISCOVER})
+var seed = cm.random32HexBytes()
+
+if (process.argv.length < 3) {
+  console.log("Please pass joinCode as first argument")
+  process.exit(1)
+}
+var joinCode = process.argv[2]
+
+cm.log = function () {} // Disable logs
+cm.connect().then((config) => {
+  console.log("Connected to server. Blockchain height: " + config.topBlock.height + " joinCode: " + joinCode)
+  return cm.walletRegister(seed)
+}).then(wallet => {
+  console.log("Wallet opened with seed: " + seed)
+  return cm.accountJoin({code: joinCode})
+}).then(res => {
+  console.log("Multisig account joined with joinCode: " + joinCode)
+  return cm.disconnect()
 }).catch(error => {
   console.log("Unexpected exception: ", error)
 })
