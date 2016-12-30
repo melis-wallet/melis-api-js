@@ -714,9 +714,18 @@ CM.prototype.subscribe = function (queue, callback, headers) {
   }, headers)
 }
 
-CM.prototype.subscribeToCurrencyData = function (currency, callback) {
+CM.prototype.subscribeToTickerData = function (currency, callback) {
   if (!currency || !callback)
-    throwBadParamEx('currency', "Missing currency or callback while subscribing to quotation: " + currency)
+    throwBadParamEx('currency', "Missing currency or callback while subscribing to ticker: " + currency)
+  var res = this.subscribe(C.QUEUE_TICKERS_PREFIX + currency, callback)
+  return res.ask === 0 ? null : res
+}
+
+// DEPRECATED -- please do not use, will be removed in next release
+CM.prototype.subscribeToCurrencyData = function (currency, callback) {
+  this.log("WARNING: call to deprecated subscribeToCurrencyData()")
+  if (!currency || !callback)
+    throwBadParamEx('currency', "Missing currency or callback while subscribing to legacy quotation: " + currency)
   var res = this.subscribe(C.QUEUE_QUOTES_PREFIX + currency, callback)
   return res.ask === 0 ? null : res
 }
