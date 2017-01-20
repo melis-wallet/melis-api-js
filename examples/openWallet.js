@@ -45,7 +45,7 @@ cm.connect().then(function (config) {
     if (!account)
       account = wallet.accounts[i]
   console.log("selected account: ", account)
-  return cm.getAddresses(account)
+  return cm.addressesGet(account)
 }).then(function (slice) {
   var l = slice.list
   console.log("Addresses: ")

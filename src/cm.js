@@ -1,17 +1,15 @@
 //const {fetch, Request, Response, Headers} = require('fetch-ponyfill')()
-const fetch = require('fetch-ponyfill')().fetch
+require('isomorphic-fetch');
 const Q = require('q')
 const events = require('events')
-const Stomp = require('stompjs')
+const Stomp = require('webstomp-client')
+const WebSocketClient = require('ws')
 const SockJS = require('sockjs-client')
 const Bitcoin = require('bitcoinjs-lib')
 const isNode = require('detect-node')
 const randomBytes = require('randombytes')
 const sjcl = require('sjcl-all')
 const C = require("./cm-constants")
-//var ecurve = require('ecurve')
-//var secp256k1 = ecurve.getCurveByName('secp256k1')
-//var BlockChainApi = require("./blockchains-api")
 
 function MelisError(ex, msg) {
   this.ex = ex
@@ -222,7 +220,7 @@ function rpcErrorHandler(target, res) {
         target.log("Server requested to slow down requests -- retry #" + rpcData.numRetries + " waiting " + rpcRetryDelay + "ms")
         setTimeout(function () {
           target.log("Preparing new request")
-          target.rpc(rpcData.queue, rpcData.headers, rpcData.data, rpcData.numRetries + 1).then(function (res) {
+          target.rpc(rpcData.queue, rpcData.data, rpcData.headers, rpcData.numRetries + 1).then(function (res) {
             rpcData.deferred.resolve(res)
           }).catch(function (res) {
             target.log("RE-REQUEST FAILED:", res)
@@ -318,6 +316,8 @@ CM.prototype.decodeNetworkName = function (networkName) {
 CM.prototype.setAutoReconnectDelay = function (seconds) {
   if (seconds >= 0)
     this.autoReconnectDelay = seconds
+  else
+    this.autoReconnectDelay = 0
 }
 
 CM.prototype.randomBytes = function (n) {
@@ -404,7 +404,7 @@ CM.prototype.deriveHdAccount = function (accountNum, chain, index) {
   return this.deriveHdAccount_internal(this.bitcoinNetwork, this.hdWallet, accountNum, chain, index)
 }
 
-CM.prototype.rpc = function (queue, headers, data, numRetries) {
+CM.prototype.rpc = function (queue, data, headers, numRetries) {
   this.log("[RPC] q: " + queue + (headers ? " h: " + JSON.stringify(headers) : " no headers") + (data ? " data: " + JSON.stringify(data) : " no data"))
   if (!queue)
     throwBadParamEx('queue', "RPC call without defined queue")
@@ -427,9 +427,9 @@ CM.prototype.rpc = function (queue, headers, data, numRetries) {
     headers = {}
   headers.id = rpcCounter
   if (data !== undefined && data !== null)
-    this.stompClient.send(queue, headers, typeof data === "object" ? JSON.stringify(data) : data)
+    this.stompClient.send(queue, typeof data === "object" ? JSON.stringify(data) : data, headers)
   else
-    this.stompClient.send(queue, headers, "{}")
+    this.stompClient.send(queue, "{}", headers)
   var self = this
   return deferred.promise.timeout(this.rpcTimeout).catch(function (err) {
     self.log("[RPC] Ex or Timeout -- res: ", err)
@@ -449,20 +449,9 @@ CM.prototype.rpc = function (queue, headers, data, numRetries) {
 }
 
 CM.prototype.simpleRpcSlice = function (queue, data) {
-  return this.rpc(queue, null, data).then(function (res) {
+  return this.rpc(queue, data).then(function (res) {
     return res.slice
   })
-}
-
-function refetchStompEndpoint(self, config, errorMessage) {
-  if (self.autoReconnectDelay > 0) {
-    var timeout = 10 + Math.random() * 10 + Math.random() * (self.autoReconnectDelay / 10)
-    self.log("[CM] ---- NEXT AUTO RECONNECT : " + timeout)
-    return Q.delay(timeout * 1000).then(function () {
-      return fetchStompEndpoint(self, config)
-    })
-  } else
-    throwConnectionEx(errorMessage)
 }
 
 // Fetch the STOMP endpoint from the melis discover server
@@ -471,31 +460,35 @@ function fetchStompEndpoint(self, config) {
   return fetch(self.apiDiscoveryUrl, {
     headers: {"user-agent": "melis-js-api/" + C.CLIENT_API_VERSION}
   }).then(function (res) {
+    if (res.status !== 200)
+      throw new MelisError('DiscoveryEx', 'Bad status code: ' + res.status)
     return res.json()
   }).then(function (discovered) {
     self.log("Discovery result: ", discovered)
     self.apiUrls = discovered
-    if (!discovered.publicUrlPrefix || !discovered.stompEndpoint)
-      return refetchStompEndpoint(self, config, "Bad discovery data")
-    return discovered
+    if (discovered.publicUrlPrefix || discovered.stompEndpoint)
+      return discovered
+    throw new MelisError('DiscoveryEx', 'Missing discovery data')
   }).catch(function (res) {
-    self.log("Fetch discovery get or parse error: ", res)
     var stringMsg = "" + res
     if (stringMsg.includes("SyntaxError: Unexpected token"))
-      return refetchStompEndpoint(self, config, "Unable to discover stompEndpoint")
+      throw new MelisError('DiscoveryEx', 'Unable to discover stompEndpoint')
     else
-      return refetchStompEndpoint(self, config, stringMsg)
+      throw new MelisError('DiscoveryEx', stringMsg)
   })
 }
 
 function enableKeepAliveFunc(self) {
-  if (!self.disableKeepAlive)
-    self.keepAliveFunc = setInterval(function () {
-      keepAliveFunction(self)
-    }, (self.maxKeepAliveSeconds / 2 + 1) * 1000)
+  self.log("[enableKeepAliveFunc] self.keepAliveFunc: " + self.keepAliveFunc)
+  if (self.disableKeepAlive || self.keepAliveFunc)
+    return
+  self.keepAliveFunc = setInterval(function () {
+    keepAliveFunction(self)
+  }, (self.maxKeepAliveSeconds / 2 + 1) * 1000)
 }
 
 function disableKeepAliveFunc(self) {
+  self.log("[disableKeepAliveFunc] self.keepAliveFunc: " + self.keepAliveFunc)
   if (self.keepAliveFunc) {
     clearInterval(self.keepAliveFunc)
     self.keepAliveFunc = null
@@ -510,33 +503,48 @@ function disableAutoReconnect(self) {
 }
 
 function stompDisconnected(self, frame, deferred) {
-  self.log("[CM] Connection lost: " + frame)
+  var wasConnected = self.connected
+  var wasPaused = self.paused
+  self.log("[CM] stompDisconnected wasConnected: " + wasConnected + " wasPaused: " + wasPaused)// + " err.code: " + frame.code + " err.wasClean: " + frame.wasClean)
   self.connected = false
+  self.connecting = false
+  self.paused = false
   self.cmConfiguration = null
   disableKeepAliveFunc(self)
   if (deferred)
     deferred.reject(frame)
-  emitEvent(self, C.EVENT_DISCONNECT)
 
   Object.keys(self.waitingReplies).forEach(function (i) {
     var rpcData = self.waitingReplies[i]
-    self.log('[CM] Manual fail of open rpc request:', rpcData)
+    self.log('[CM] Cancelling open rpc request:', rpcData)
     rpcData.deferred.reject(buildConnectionFailureEx("Disconnected"))
   })
   self.waitinReplies = {}
-  this.connecting = false
+  emitEvent(self, C.EVENT_DISCONNECT)
 
-  if (self.paused)
+  if (wasPaused || !wasConnected)
     return
 
   if (self.autoReconnectDelay > 0 && self.autoReconnectFunc === null) {
     var timeout = 10 + Math.random() * 10 + Math.random() * (self.autoReconnectDelay / 10)
-    self.log("[CM] ---- NEXT AUTO RECONNECT : " + timeout)
+    self.log("[CM] NEXT AUTO RECONNECT in " + timeout + " seconds")
     self.autoReconnectFunc = setTimeout(function () {
       self.autoReconnectFunc = null
       self.connect(self.lastConfig)
     }, timeout * 1000)
   }
+}
+
+function retryConnect(self, config, errorMessage) {
+  self.log(errorMessage)
+  if (self.autoReconnectDelay > 0) {
+    var timeout = 10 + Math.random() * 10 + Math.random() * (self.autoReconnectDelay / 10)
+    self.log("[CM] retryConnect in " + timeout + " seconds")
+    return Q.delay(timeout * 1000).then(function () {
+      return self.connect(config)
+    })
+  } else
+    throwConnectionEx(errorMessage)
 }
 
 CM.prototype.connect = function (config) {
@@ -556,20 +564,41 @@ CM.prototype.connect = function (config) {
     this.stompClient = null
   }
 
-  if (self.stompEndpoint)
-    return self.connect_internal(self.stompEndpoint, config)
-  else
-    return Q(fetchStompEndpoint(self, config).then(function (discovered) {
-      return self.connect_internal(discovered.stompEndpoint, config)
-    }))
+  var discoverer = self.stompEndpoint ?
+          Q(self.stompEndpoint) :
+          Q(fetchStompEndpoint(self, config)).then(function (discovered) {
+    return discovered.stompEndpoint
+  })
+  return discoverer.then(function (stompEndpoint) {
+    return self.connect_internal(stompEndpoint, config)
+  }).catch(function (err) {
+    return retryConnect(self, config, 'Unable to connect to ' + self.stompEndpoint + ": " + err.code)
+  })
+//  if (self.stompEndpoint)
+//    return self.connect_internal(self.stompEndpoint, config).catch(err => {
+//      return retryConnect(self, config, 'Unable to connect to ' + self.stompEndpoint + ": " + err.code)
+//    })
+//  else
+//    return Q(fetchStompEndpoint(self, config).then(discovered => {
+//      return self.connect_internal(discovered.stompEndpoint, config)
+//    }))
 }
 
 CM.prototype.connect_internal = function (stompEndpoint, config) {
   var self = this
+  var deferred = Q.defer()
+  var options = {debug: false, heartbeat: false, protocols: Stomp.VERSIONS.supportedProtocols()}
   if ((/^wss?:\/\//).test(stompEndpoint)) {
     if (isNode) {
       self.log("[STOMP] Opening websocket (node):", stompEndpoint)
-      this.stompClient = Stomp.overWS(stompEndpoint)
+      //this.stompClient = Stomp.over(new WebSocketClient(stompEndpoint), options)
+      //this.stompClient = Stomp.overWS(stompEndpoint)
+      var ws = new WebSocketClient(stompEndpoint)
+      ws.on('error', function (error) {
+        self.log('[connect_internel] CONNECT ERROR:' + error.code)
+        deferred.reject(error)
+      })
+      this.stompClient = Stomp.over(ws, options)
     } else {
       self.log("[STOMP] Opening websocket (browser):", stompEndpoint)
       this.stompClient = Stomp.client(stompEndpoint)
@@ -583,7 +612,6 @@ CM.prototype.connect_internal = function (stompEndpoint, config) {
 //self.log("this.stompClient.debug() called. Size: " + str.length)
 //self.log(str)
   }
-  var deferred = Q.defer()
   var headers = {}
   if (config && config.userAgent)
     headers.userAgent = JSON.stringify(config.userAgent)
@@ -594,9 +622,10 @@ CM.prototype.connect_internal = function (stompEndpoint, config) {
   this.lastConfig = config
 
   this.stompClient.connect(headers, function (frame) {
-    self.log("[CM] Connect: " + frame)
+    self.log("[CM] Connected to websocket: " + frame)
     self.connected = true
     self.connecting = false
+    self.paused = false
     emitEvent(self, C.EVENT_CONNECT)
 
     self.stompClient.subscribe(C.QUEUE_RPC_REPLY, function (message) {
@@ -634,15 +663,14 @@ CM.prototype.connect_internal = function (stompEndpoint, config) {
         emitEvent(self, event.type, event.params)
       }
       if (self.lastOpenParams) {
-        self.walletOpen(self.lastOpenParams.seed, self.lastOpenParams).then(function () {
-          deferred.resolve(self.cmConfiguration)
-          emitEvent(self, C.EVENT_SESSION_RESTORED, self.cmConfiguration)
+        self.walletOpen(self.lastOpenParams.seed, self.lastOpenParams).then(function (wallet) {
+          emitEvent(self, C.EVENT_SESSION_RESTORED, wallet)
         })
-      } else
-        deferred.resolve(self.cmConfiguration)
+      }
       if (self.cmConfiguration.maxKeepAliveSeconds && self.cmConfiguration.maxKeepAliveSeconds < self.maxKeepAliveSeconds)
         self.maxKeepAliveSeconds = self.cmConfiguration.maxKeepAliveSeconds
       enableKeepAliveFunc(self)
+      deferred.resolve(self.cmConfiguration)
     })
 
   }, function (frame) {
@@ -694,12 +722,16 @@ CM.prototype.verifyConnectionEstablished = function (timeout) {
     timeout = 5
   if (timeout > this.maxKeepAliveSeconds)
     timeout = this.maxKeepAliveSeconds
-  enableKeepAliveFunc(this)
-  if (!this.connected || !this.stompClient)
+  self.log("[verifyConnectionEstablished] connected: " + this.connected + " timeout: " + timeout + " stompClient: " + (this.stompClient ? "yes" : "no"))
+  if (!this.stompClient)
     return Q()
+  if (!this.connected)
+    return this.connect()
   return this.ping().timeout(timeout * 1000).catch(function (err) {
     self.log("[verifyConnectionEstablished] ping timeout after " + timeout + " seconds")
     return handleConnectionLoss(self)
+  }).then(function () {
+    enableKeepAliveFunc(self)
   })
 }
 
@@ -749,14 +781,14 @@ CM.prototype.getPaymentAddressForAccount = function (accountIdOrAlias, param) {
     if (param.address)
       opts.address = param.address
   }
-  return this.rpc(C.GET_PAYMENT_ADDRESS, null, opts).then(function (res) {
-    //this.log("[CM] getAddresses: " + JSON.stringify(res))
+  return this.rpc(C.GET_PAYMENT_ADDRESS, opts).then(function (res) {
+    //this.log("[CM] getPaymentAddress: ", res)
     return res.address
   })
 }
 
 CM.prototype.accountGetPublicInfo = function (params) {
-  return this.rpc(C.GET_ACCOUNT_PUBLIC_INFO, null, {name: params.name, code: params.code}).then(function (res) {
+  return this.rpc(C.GET_ACCOUNT_PUBLIC_INFO, {name: params.name, code: params.code}).then(function (res) {
     //this.log("[CM] accountGetPublicInfo: " + JSON.stringify(res))
     return res.account
   })
@@ -815,7 +847,7 @@ CM.prototype.extractPubKeyFromOutputScript = function (script) {
 }
 
 CM.prototype.pushTx = function (hex) {
-  return this.rpc(C.UTILS_PUSH_TX, null, {hex: hex})
+  return this.rpc(C.UTILS_PUSH_TX, {hex: hex})
 }
 
 CM.prototype.ping = function () {
@@ -826,7 +858,7 @@ CM.prototype.deviceSetPassword = function (deviceName, pin) {
   if (!deviceName || !pin)
     return failPromiseWithBadParam(deviceName ? "pin" : "deviceName", "missing deviceName or pin")
   var self = this
-  return this.rpc(C.WALLET_DEVICE_SET_PASSWORD, null, {
+  return this.rpc(C.WALLET_DEVICE_SET_PASSWORD, {
     deviceName: deviceName,
     userPin: pin
   }).then(function (res) {
@@ -840,7 +872,7 @@ CM.prototype.deviceGetPassword = function (deviceId, pin) {
   if (!deviceId || !pin)
     return failPromiseWithBadParam(deviceId ? "pin" : "deviceId", "missing deviceId or pin")
   var self = this
-  return this.rpc(C.WALLET_DEVICE_GET_PASSWORD, null, {
+  return this.rpc(C.WALLET_DEVICE_GET_PASSWORD, {
     deviceId: deviceId,
     userPin: pin
   }).then(function (res) {
@@ -853,7 +885,7 @@ CM.prototype.deviceUpdate = function (deviceId, newName) {
   if (!deviceId || !newName)
     return failPromiseWithBadParam("deviceId|newName", "missing deviceId or newName")
   var self = this
-  return this.rpc(C.WALLET_DEVICE_UPDATE, null, {
+  return this.rpc(C.WALLET_DEVICE_UPDATE, {
     deviceId: deviceId,
     deviceName: newName
   }).then(function (res) {
@@ -865,7 +897,7 @@ CM.prototype.deviceChangePin = function (deviceId, oldPin, newPin) {
   if (!deviceId || !oldPin || !newPin)
     return failPromiseWithBadParam("deviceId|oldPin|newPin", "missing deviceId, newPin or oldPin")
   var self = this
-  return this.rpc(C.WALLET_DEVICE_CHANGE_PIN, null, {
+  return this.rpc(C.WALLET_DEVICE_CHANGE_PIN, {
     deviceId: deviceId,
     userPin: oldPin,
     newPin: newPin
@@ -877,7 +909,7 @@ CM.prototype.deviceChangePin = function (deviceId, oldPin, newPin) {
 CM.prototype.devicePromoteToPrimary = function (deviceId, tfa) {
   if (!deviceId)
     return failPromiseWithBadParam("deviceId", "missing deviceId")
-  return this.rpc(C.WALLET_DEVICE_PROMOTE_TO_PRIMARY, null, {
+  return this.rpc(C.WALLET_DEVICE_PROMOTE_TO_PRIMARY, {
     deviceId: deviceId,
     tfa: tfa
   })
@@ -892,7 +924,7 @@ CM.prototype.deviceGetRecoveryHours = function () {
 }
 
 CM.prototype.deviceSetRecoveryHours = function (hours, tfa) {
-  return this.rpc(C.WALLET_DEVICE_SET_RECOVERY_HOURS, null, {
+  return this.rpc(C.WALLET_DEVICE_SET_RECOVERY_HOURS, {
     data: hours, tfa: tfa
   })
 }
@@ -907,14 +939,14 @@ CM.prototype.devicesDelete = function (param) {
     data.deviceIds = param
   else
     data.deviceId = param
-  return this.rpc(C.WALLET_DEVICES_DELETE, null, data)
+  return this.rpc(C.WALLET_DEVICES_DELETE, data)
 }
 
 CM.prototype.devicesDeleteAll = function (deviceId) {
   var data = {}
   if (deviceId)
     data.deviceId = deviceId
-  return this.rpc(C.WALLET_DEVICES_DELETE_ALL, null, data)
+  return this.rpc(C.WALLET_DEVICES_DELETE_ALL, data)
 }
 
 //
@@ -935,13 +967,13 @@ CM.prototype.walletOpen = function (seed, params) {
     var signature = loginKey.sign(buf)
     //self.log("child: " + child.getPublicKeyBuffer().toString('hex')() + " sig: " + signature)
     //self.log("pubKey: " + masterPubKey + " r: " + signature.r.toString() + " s: " + signature.s.toString())
-    return self.rpc(C.WALLET_OPEN, null, {
+    return self.rpc(C.WALLET_OPEN, {
       id: loginKey.getPublicKeyBuffer().toString('hex'),
       signatureR: signature.r.toString(), signatureS: signature.s.toString(),
       sessionName: params.sessionName,
       deviceId: params.deviceId
     }).then(function (res) {
-      self.log("[CM] walletOpen :", res)
+      self.log("[CM] walletOpen :", res.wallet.pubKey)
       walletOpen(self, hd, res.wallet)
       self.lastOpenParams = {seed: seed, sessionName: params.sessionName, deviceId: params.deviceId}
       return res.wallet
@@ -964,7 +996,7 @@ CM.prototype.walletRegister = function (seed, params) {
     self.log(ex)
     return Q.reject(ex)
   }
-  return self.rpc(C.WALLET_REGISTER, null, {
+  return self.rpc(C.WALLET_REGISTER, {
     xpub: loginKey.neutered().toBase58(),
     //id: loginKey.getPublicKeyBuffer().toString('hex'),
     //chainCode: loginKey.chainCode.toString('hex'),
@@ -1015,27 +1047,27 @@ CM.prototype.getFreeAccountNum = function () {
 }
 
 CM.prototype.addPushTokenGoogle = function (token) {
-  return this.rpc(C.WALLET_PUSH_REGISTER_GOOGLE, null, {data: token})
+  return this.rpc(C.WALLET_PUSH_REGISTER_GOOGLE, {data: token})
 }
 
 CM.prototype.aliasGetInfo = function (account) {
-  return this.rpc(C.ACCOUNT_ALIAS_INFO, null, {pubId: account.pubId})
+  return this.rpc(C.ACCOUNT_ALIAS_INFO, {pubId: account.pubId})
 }
 
 CM.prototype.aliasIsAvailable = function (alias) {
-  return this.rpc(C.ACCOUNT_ALIAS_AVAILABLE, null, {name: alias})
+  return this.rpc(C.ACCOUNT_ALIAS_AVAILABLE, {name: alias})
 }
 
 CM.prototype.aliasDefine = function (account, alias) {
-  return this.rpc(C.ACCOUNT_ALIAS_DEFINE, null, {pubId: account.pubId, name: alias})
+  return this.rpc(C.ACCOUNT_ALIAS_DEFINE, {pubId: account.pubId, name: alias})
 }
 
 CM.prototype.clientMetaSet = function (name, value) {
-  return this.rpc(C.WALLET_CLIENT_META_SET, null, {name: name, meta: value})
+  return this.rpc(C.WALLET_CLIENT_META_SET, {name: name, meta: value})
 }
 
 CM.prototype.clientMetaGet = function (name) {
-  return this.rpc(C.WALLET_CLIENT_META_GET, null, {name: name}).then(function (res) {
+  return this.rpc(C.WALLET_CLIENT_META_GET, {name: name}).then(function (res) {
     return res.meta
   })
 }
@@ -1046,7 +1078,7 @@ CM.prototype.clientMetasGet = function (pagingInfo) {
 }
 
 CM.prototype.clientMetaDelete = function (name) {
-  return this.rpc(C.WALLET_CLIENT_META_DELETE, null, {name: name})
+  return this.rpc(C.WALLET_CLIENT_META_DELETE, {name: name})
 }
 
 //
@@ -1076,7 +1108,7 @@ CM.prototype.accountCreate = function (params) {
     params.accountNum = accountNum
     var accountHd = self.deriveHdAccount(accountNum)
     params.xpub = accountHd.neutered().toBase58()
-    return self.rpc(C.ACCOUNT_REGISTER, null, params)
+    return self.rpc(C.ACCOUNT_REGISTER, params)
   }).then(function (res) {
     updateAccount(self, res.account, res.balance)
     return res
@@ -1093,7 +1125,7 @@ CM.prototype.accountJoin = function (params) {
   var self = this
   return numPromise.then(function (accountNum) {
     var accountHd = self.deriveHdAccount(accountNum)
-    return self.rpc(C.ACCOUNT_JOIN, null, {
+    return self.rpc(C.ACCOUNT_JOIN, {
       code: params.code,
       accountNum: accountNum,
       xpub: accountHd.neutered().toBase58(),
@@ -1107,7 +1139,7 @@ CM.prototype.accountJoin = function (params) {
 
 CM.prototype.accountRefresh = function (account) {
   var self = this
-  return this.rpc(C.ACCOUNT_REFRESH, null, {
+  return this.rpc(C.ACCOUNT_REFRESH, {
     pubId: account.pubId
   }).then(function (res) {
     updateAccount(self, res.account, res.balance)
@@ -1120,7 +1152,7 @@ CM.prototype.accountUpdate = function (account, options) {
     return
   this.log("[accountUpdate] " + account.pubId + " :", options)
   var self = this
-  return this.rpc(C.ACCOUNT_UPDATE, null, {
+  return this.rpc(C.ACCOUNT_UPDATE, {
     pubId: account.pubId,
     hidden: options.hidden,
     meta: options.meta,
@@ -1134,7 +1166,7 @@ CM.prototype.accountUpdate = function (account, options) {
 
 CM.prototype.accountDelete = function (account) {
   var self = this
-  return this.rpc(C.ACCOUNT_DELETE, null, {pubId: account.pubId}).then(function (res) {
+  return this.rpc(C.ACCOUNT_DELETE, {pubId: account.pubId}).then(function (res) {
     delete self.walletData.accounts[account.num]
     delete self.walletData.balances[account.num]
     return res
@@ -1143,18 +1175,18 @@ CM.prototype.accountDelete = function (account) {
 
 CM.prototype.accountGetInfo = function (account) {
   var self = this
-  return this.rpc(C.ACCOUNT_GET_INFO, null, {pubId: account.pubId}).then(function (res) {
+  return this.rpc(C.ACCOUNT_GET_INFO, {pubId: account.pubId}).then(function (res) {
     updateAccountInfo(self, account, res)
     return res
   })
 }
 
 CM.prototype.joinCodeGetInfo = function (code) {
-  return this.rpc(C.ACCOUNT_GET_JOIN_CODE_INFO, null, {code: code})
+  return this.rpc(C.ACCOUNT_GET_JOIN_CODE_INFO, {code: code})
 }
 
 CM.prototype.getLocktimeDays = function (account) {
-  return this.rpc(C.ACCOUNT_GET_LOCKTIME_DAYS, null, {
+  return this.rpc(C.ACCOUNT_GET_LOCKTIME_DAYS, {
     pubId: account.pubId
   }).then(function (res) {
     return res
@@ -1162,15 +1194,13 @@ CM.prototype.getLocktimeDays = function (account) {
 }
 
 CM.prototype.setLocktimeDays = function (account, days, tfa) {
-  return this.rpc(C.ACCOUNT_SET_LOCKTIME_DAYS, null, {
+  return this.rpc(C.ACCOUNT_SET_LOCKTIME_DAYS, {
     pubId: account.pubId, data: days, tfa: tfa
-  }).then(function (res) {
-    return res
   })
 }
 
 CM.prototype.getRecoveryInfo = function (account) {
-  return this.rpc(C.ACCOUNT_GET_RECOVERY_INFO, null, {
+  return this.rpc(C.ACCOUNT_GET_RECOVERY_INFO, {
     pubId: account.pubId
   })
 }
@@ -1181,7 +1211,22 @@ CM.prototype.getUnusedAddress = function (account, address, labels, meta) {
   if (labels && labels.length === 0)
     labels = null
   var self = this
-  return this.rpc(C.ACCOUNT_GET_UNUSED_ADDRESS, null, {
+  return this.rpc(C.ACCOUNT_GET_UNUSED_ADDRESS, {
+    pubId: account.pubId,
+    address: address,
+    labels: labels,
+    meta: meta
+  }).then(function (res) {
+    return res.address
+  })
+}
+
+CM.prototype.addressUpdate = function (account, address, labels, meta) {
+  if (meta && Object.keys(meta).length === 0)
+    meta = null
+  if (labels && labels.length === 0)
+    labels = null
+  return this.rpc(C.ACCOUNT_ADDRESS_UPDATE, {
     pubId: account.pubId,
     address: address,
     labels: labels,
@@ -1192,22 +1237,31 @@ CM.prototype.getUnusedAddress = function (account, address, labels, meta) {
 }
 
 CM.prototype.addressRelease = function (account, address) {
-  return this.rpc(C.ACCOUNT_ADDRESS_RELEASE, null, {
+  return this.rpc(C.ACCOUNT_ADDRESS_RELEASE, {
     pubId: account.pubId,
     address: address
+  }).then(function (res) {
+    return res.address
   })
 }
 
-CM.prototype.getAddresses = function (account, optionsAndPaging) {
+CM.prototype.addressGet = function (account, address, optionsAndPaging) {
+  var pars = addPagingInfo({pubId: account.pubId, address: address}, optionsAndPaging)
+  if (optionsAndPaging && optionsAndPaging.includeTxInfos)
+    pars.includeTxInfos = optionsAndPaging.includeTxInfos
+  return this.rpc(C.ACCOUNT_ADDRESS_GET, pars)
+}
+
+CM.prototype.addressesGet = function (account, optionsAndPaging) {
   var pars = addPagingInfo({pubId: account.pubId}, optionsAndPaging)
   if (optionsAndPaging && optionsAndPaging.onlyActives)
     pars.onlyActives = optionsAndPaging.onlyActives
-  return this.simpleRpcSlice(C.ACCOUNT_GET_ADDRESSES, pars)
+  return this.simpleRpcSlice(C.ACCOUNT_ADDRESSES_GET, pars)
 }
 
 CM.prototype.addLegacyAddress = function (account, keyPair, params) {
   var data = this.prepareAddressSignature(keyPair, C.MSG_PREFIX_LEGACY_ADDR)
-  return this.rpc(C.WALLET_ADD_LEGACY_ADDRESS, null, {
+  return this.rpc(C.WALLET_ADD_LEGACY_ADDRESS, {
     pubId: account.pubId,
     address: data.address,
     data: data.base64Sig,
@@ -1234,7 +1288,7 @@ CM.prototype.txInfosGet = function (account, filter, pagingInfo) {
 }
 
 CM.prototype.txInfoGet = function (id) {
-  return this.rpc(C.ACCOUNT_GET_TX_INFO, null, {
+  return this.rpc(C.ACCOUNT_GET_TX_INFO, {
     data: id
   }).then(function (res) {
     return res.txInfo
@@ -1242,7 +1296,7 @@ CM.prototype.txInfoGet = function (id) {
 }
 
 CM.prototype.txInfoSet = function (id, labels, meta) {
-  return this.rpc(C.ACCOUNT_SET_TX_INFO, null, {
+  return this.rpc(C.ACCOUNT_SET_TX_INFO, {
     data: id,
     labels: labels,
     meta: meta
@@ -1253,7 +1307,7 @@ CM.prototype.txInfoSet = function (id, labels, meta) {
 }
 
 CM.prototype.getAllLabels = function (account) {
-  return this.rpc(C.ACCOUNT_GET_ALL_LABELS, null, {pubId: account ? account.pubId : null})
+  return this.rpc(C.ACCOUNT_GET_ALL_LABELS, {pubId: account ? account.pubId : null})
 }
 
 CM.prototype.ptxPrepare = function (account, recipients, options) {
@@ -1277,7 +1331,7 @@ CM.prototype.ptxPrepare = function (account, recipients, options) {
   if (options.disableRbf)
     params.ptxOptions.disableRbf = options.disableRbf
   this.log("[CM ptxPrepare] params:", params)
-  return this.rpc(C.ACCOUNT_PTX_PREPARE, null, params)
+  return this.rpc(C.ACCOUNT_PTX_PREPARE, params)
 }
 
 CM.prototype.ptxFeeBump = function (id, options) {
@@ -1285,19 +1339,19 @@ CM.prototype.ptxFeeBump = function (id, options) {
     throwBadParamEx("options.feeMultiplier", "Missing feeMultiplier")
   var ptxOptions = {feeMultiplier: options.feeMultiplier}
   var params = {data: id, ptxOptions: ptxOptions}
-  return this.rpc(C.ACCOUNT_PTX_FEE_BUMP, null, params)
+  return this.rpc(C.ACCOUNT_PTX_FEE_BUMP, params)
 }
 
 CM.prototype.ptxGetById = function (id) {
-  return this.rpc(C.ACCOUNT_PTX_GET, null, {data: id})
+  return this.rpc(C.ACCOUNT_PTX_GET, {data: id})
 }
 
 CM.prototype.ptxGetByHash = function (hash) {
-  return this.rpc(C.ACCOUNT_PTX_GET, null, {hash: hash})
+  return this.rpc(C.ACCOUNT_PTX_GET, {hash: hash})
 }
 
 CM.prototype.ptxCancel = function (ptx) {
-  return this.rpc(C.ACCOUNT_PTX_CANCEL, null, {data: ptx.id})
+  return this.rpc(C.ACCOUNT_PTX_CANCEL, {data: ptx.id})
 }
 
 CM.prototype.ptxSignFields = function (account, ptx) {
@@ -1309,7 +1363,7 @@ CM.prototype.ptxSignFields = function (account, ptx) {
 //    this.log("our xpub: : " + ptx.accountPubId + " path: " + keyPath[0] + " " + keyPath[1])
 //    this.log("address: " + node.keyPair.getAddress() + " msg: " + msg + " SIG: " + sig.toString('base64') + " VERIFY: " + verified)
 //    var keyMessage = {keyPath: keyPath, ptxSig: sig.toString('base64'), type: 'fullAES'}
-  return this.rpc(C.ACCOUNT_PTX_SIGN_FIELDS, null, {
+  return this.rpc(C.ACCOUNT_PTX_SIGN_FIELDS, {
     data: ptx.id,
     num1: num1,
     num2: num2,
@@ -1429,7 +1483,7 @@ CM.prototype.signaturesSubmit = function (state, signatures, tfa) {
   var txId = state.ptx.id
   var self = this
   self.log("[CM signaturesSubmit] sigs: " + signatures + " txId: " + txId + " account: ", account)
-  return this.rpc(C.ACCOUNT_SUBMIT_SIGNATURES, null, {
+  return this.rpc(C.ACCOUNT_SUBMIT_SIGNATURES, {
     pubId: account.pubId,
     data: txId,
     signatures: signatures,
@@ -1784,14 +1838,14 @@ CM.prototype.getUnspents = function (account, pagingInfo) {
 
 CM.prototype.accountGetLimits = function (account) {
   this.log("[CM accountGetLimits] account: ", account)
-  return this.rpc(C.ACCOUNT_LIMITS_GET, null, {
+  return this.rpc(C.ACCOUNT_LIMITS_GET, {
     pubId: account.pubId
   })
 }
 
 CM.prototype.accountSetLimit = function (account, limit, tfa) {
   this.log("[CM accountSetLimit] limit: " + JSON.stringify(limit) + " account:", account)
-  return this.rpc(C.ACCOUNT_LIMIT_SET, null, {
+  return this.rpc(C.ACCOUNT_LIMIT_SET, {
     pubId: account.pubId,
     type: limit.type, isHard: limit.isHard, amount: limit.amount,
     tfa: tfa
@@ -1803,7 +1857,7 @@ CM.prototype.accountSetLimit = function (account, limit, tfa) {
 
 CM.prototype.accountCancelLimitChange = function (account, limitType, tfa) {
   this.log("[CM accountCancelLimitChange] " + limitType + " account:", account)
-  return this.rpc(C.ACCOUNT_LIMIT_CANCEL_CHANGE, null, {
+  return this.rpc(C.ACCOUNT_LIMIT_CANCEL_CHANGE, {
     pubId: account.pubId,
     type: limitType,
     tfa: tfa
@@ -1826,7 +1880,7 @@ CM.prototype.tfaEnrollStart = function (params, tfa) {
   if (!params.name)
     throwBadParamEx('params', "Missing name")
   this.log("[CM tfaEnrollStart] name: " + params.name + " value: " + params.value + " tfa: " + (tfa ? JSON.stringify(tfa) : "NONE"))
-  return this.rpc(C.TFA_ENROLL_START, null, {
+  return this.rpc(C.TFA_ENROLL_START, {
     name: params.name,
     value: params.value,
     data: params.data,
@@ -1841,14 +1895,14 @@ CM.prototype.tfaEnrollStart = function (params, tfa) {
 
 CM.prototype.tfaEnrollFinish = function (tfa) {
   this.log("[CM tfaEnrollFinish] " + (tfa ? JSON.stringify(tfa) : "NONE"))
-  return this.rpc(C.TFA_ENROLL_FINISH, null, {tfa: tfa}).then(function (res) {
+  return this.rpc(C.TFA_ENROLL_FINISH, {tfa: tfa}).then(function (res) {
     //console.log("tfaEnrollFinish: " + JSON.stringify(res))
     return res.tfaRes
   })
 }
 
 CM.prototype.tfaDeviceDelete = function (param, tfa) {
-  return this.rpc(C.TFA_DEVICE_DELETE, null, {
+  return this.rpc(C.TFA_DEVICE_DELETE, {
     name: param.name,
     value: param.value,
     tfa: tfa
@@ -1859,7 +1913,7 @@ CM.prototype.tfaDeviceDelete = function (param, tfa) {
 }
 
 CM.prototype.tfaDeviceProposeDelete = function (param) {
-  return this.rpc(C.TFA_DEVICE_PROPOSE_DELETE, null, {
+  return this.rpc(C.TFA_DEVICE_PROPOSE_DELETE, {
     name: param.name,
     value: param.value
   }).then(function (res) {
@@ -1869,7 +1923,7 @@ CM.prototype.tfaDeviceProposeDelete = function (param) {
 }
 
 CM.prototype.tfaDeviceSetMeta = function (params, tfa) {
-  return this.rpc(C.TFA_DEVICE_SET_META, null, {
+  return this.rpc(C.TFA_DEVICE_SET_META, {
     name: params.name,
     value: params.value,
     meta: params.meta,
@@ -1878,7 +1932,7 @@ CM.prototype.tfaDeviceSetMeta = function (params, tfa) {
 }
 
 CM.prototype.tfaDeviceSetNotifications = function (params, tfa) {
-  return this.rpc(C.TFA_DEVICE_SET_NOTIFICATIONS, null, {
+  return this.rpc(C.TFA_DEVICE_SET_NOTIFICATIONS, {
     name: params.name,
     value: params.value,
     data: params.enabled,
@@ -1887,7 +1941,7 @@ CM.prototype.tfaDeviceSetNotifications = function (params, tfa) {
 }
 
 CM.prototype.tfaAuthStart = function (params) {
-  return this.rpc(C.TFA_AUTH_REQUEST, null, {
+  return this.rpc(C.TFA_AUTH_REQUEST, {
     name: params.name,
     value: params.value,
     address: params.appId
@@ -1899,14 +1953,14 @@ CM.prototype.tfaAuthStart = function (params) {
 
 CM.prototype.tfaAuthValidate = function (tfa) {
   this.log("[CM tfaAuthValidate] " + JSON.stringify(tfa))
-  return this.rpc(C.TFA_AUTH_VALIDATE, null, {tfa: tfa}).then(function (res) {
+  return this.rpc(C.TFA_AUTH_VALIDATE, {tfa: tfa}).then(function (res) {
     //console.log("tfaAuthValidate: " + JSON.stringify(res))
     return res.tfaRes
   })
 }
 
 CM.prototype.tfaGetAccountConfig = function (account) {
-  return this.rpc(C.TFA_GET_ACCOUNT_CONFIG, null, {pubId: account.pubId}).then(function (res) {
+  return this.rpc(C.TFA_GET_ACCOUNT_CONFIG, {pubId: account.pubId}).then(function (res) {
     //console.log("res: " + JSON.stringify(res))
     return res.tfaConfig
   })
@@ -1914,7 +1968,7 @@ CM.prototype.tfaGetAccountConfig = function (account) {
 
 CM.prototype.tfaSetAccountConfig = function (account, config, tfa) {
   this.log("[CM tfaSetAccountConfig] config: " + JSON.stringify(config))
-  return this.rpc(C.TFA_SET_ACCOUNT_CONFIG, null, {
+  return this.rpc(C.TFA_SET_ACCOUNT_CONFIG, {
     pubId: account.pubId,
     data: config.policy,
     tfa: tfa
@@ -1930,7 +1984,7 @@ CM.prototype.tfaSetAccountConfig = function (account, config, tfa) {
 
 CM.prototype.abAdd = function (entry) {
   this.log("[CM ab add] " + JSON.stringify(entry))
-  return this.rpc(C.AB_ADD, null, {
+  return this.rpc(C.AB_ADD, {
     type: entry.type,
     val: entry.val,
     labels: entry.labels,
@@ -1940,7 +1994,7 @@ CM.prototype.abAdd = function (entry) {
 
 CM.prototype.abUpdate = function (entry) {
   this.log("[CM abUpdate] " + JSON.stringify(entry))
-  return this.rpc(C.AB_UPDATE, null, {
+  return this.rpc(C.AB_UPDATE, {
     id: entry.id,
     type: entry.type,
     val: entry.val,
@@ -1951,7 +2005,7 @@ CM.prototype.abUpdate = function (entry) {
 
 CM.prototype.abDelete = function (entry) {
   this.log("[CM ab delete] " + JSON.stringify(entry))
-  return this.rpc(C.AB_DELETE, null, {id: entry.id})
+  return this.rpc(C.AB_DELETE, {id: entry.id})
 }
 
 CM.prototype.abGet = function (fromDate, pagingInfo) {
@@ -1965,7 +2019,7 @@ CM.prototype.abGet = function (fromDate, pagingInfo) {
 //
 
 CM.prototype.msgSendToAccount = function (account, to, payload, type) {
-  return this.rpc(C.MSG_SEND_TO_ACCOUNT, null, {
+  return this.rpc(C.MSG_SEND_TO_ACCOUNT, {
     pubId: account.pubId,
     toAccount: to,
     payload: payload,
@@ -1974,7 +2028,7 @@ CM.prototype.msgSendToAccount = function (account, to, payload, type) {
 }
 
 CM.prototype.msgSendToPtx = function (account, ptx, payload, type) {
-  return this.rpc(C.MSG_SEND_TO_PTX, null, {
+  return this.rpc(C.MSG_SEND_TO_PTX, {
     pubId: account.pubId,
     toPtx: ptx.id,
     payload: payload,
@@ -2009,7 +2063,7 @@ CM.prototype.sessionSetParams = function (params) {
     par.currency = params.currency
   if (params.paused)
     par.paused = params.paused
-  return this.rpc(C.SESSION_SET_PARAMS, null, par)
+  return this.rpc(C.SESSION_SET_PARAMS, par)
 }
 
 CM.prototype.getNetworkFees21 = function () {
