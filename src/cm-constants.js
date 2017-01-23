@@ -243,6 +243,8 @@ C.MSG_PREFIX_INSTANT_VERIFY = "Verify Melis instantTx: "
 
 C.MELIS_USER_AGENT = "/melis-api/"
 
+C.VALID_BASE58_CHARS = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+C.VALID_PUB_ID_REGEX = "CM[" + C.VALID_BASE58_CHARS + "]{26,28}"
 C.VALID_ALIAS_REGEX = /^[a-z0-9][a-z0-9-\\.]{2,61}$/
 
 module.exports = C
