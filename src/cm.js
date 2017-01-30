@@ -574,14 +574,6 @@ CM.prototype.connect = function (config) {
   }).catch(function (err) {
     return retryConnect(self, config, 'Unable to connect to ' + self.stompEndpoint + ": " + err.code)
   })
-//  if (self.stompEndpoint)
-//    return self.connect_internal(self.stompEndpoint, config).catch(err => {
-//      return retryConnect(self, config, 'Unable to connect to ' + self.stompEndpoint + ": " + err.code)
-//    })
-//  else
-//    return Q(fetchStompEndpoint(self, config).then(discovered => {
-//      return self.connect_internal(discovered.stompEndpoint, config)
-//    }))
 }
 
 CM.prototype.connect_internal = function (stompEndpoint, config) {
@@ -591,8 +583,6 @@ CM.prototype.connect_internal = function (stompEndpoint, config) {
   if ((/^wss?:\/\//).test(stompEndpoint)) {
     if (isNode) {
       self.log("[STOMP] Opening websocket (node):", stompEndpoint)
-      //this.stompClient = Stomp.over(new WebSocketClient(stompEndpoint), options)
-      //this.stompClient = Stomp.overWS(stompEndpoint)
       var ws = new WebSocketClient(stompEndpoint)
       ws.on('error', function (error) {
         self.log('[connect_internel] CONNECT ERROR:' + error.code)
@@ -609,8 +599,7 @@ CM.prototype.connect_internal = function (stompEndpoint, config) {
   }
 
   this.stompClient.debug = function (str) {
-//self.log("this.stompClient.debug() called. Size: " + str.length)
-//self.log(str)
+    //self.log(str)
   }
   var headers = {}
   if (config && config.userAgent)
