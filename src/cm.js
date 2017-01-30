@@ -971,7 +971,8 @@ CM.prototype.walletOpen = function (seed, params) {
       id: loginKey.getPublicKeyBuffer().toString('hex'),
       signatureR: signature.r.toString(), signatureS: signature.s.toString(),
       sessionName: params.sessionName,
-      deviceId: params.deviceId
+      deviceId: params.deviceId,
+      usePinAsTfa: params.usePinAsTfa
     }).then(function (res) {
       self.log("[CM] walletOpen :", res.wallet.pubKey)
       walletOpen(self, hd, res.wallet)
@@ -1704,8 +1705,8 @@ CM.prototype.analyzeTx = function (state, options) {
       error = "Change address not validated"
 //    else if (amountToUnknown !== 0)
 //      error = "Destination address not validated"
-  this.log("[ANALYZE] to-dest: " + amountToRecipients + " to-change: " + amountToChange + " to-other: " + amountToUnknown
-          + " fees: " + fees + " maxAcceptableFees: " + maximumAcceptableFee + " extimatedTxSize: " + extimatedTxSize + " error: " + error)
+  this.log("[ANALYZE] our-amount-in: " + amountInOur + " other-amount-in: " + amountInOther + " to-dest: " + amountToRecipients + " to-change: " + amountToChange + " to-other: " + amountToUnknown)
+  this.log("[ANALYZE] fees: " + fees + " maxAcceptableFees: " + maximumAcceptableFee + " ptx.fees: " + ptx.fees + " extimatedTxSize: " + extimatedTxSize + " error: " + error + " feeData: ", this.fees)
   return {
     validated: !error,
     error: error,
