@@ -2045,14 +2045,13 @@ CM.prototype.msgGetAllToPtxs = function (fromDate, pagingInfo) {
 // Utilities
 //
 
-CM.prototype.sessionSetParams = function (params) {
-  var par = {}
-  if (params.locale)
-    par.locale = params.locale
-  if (params.currency)
-    par.currency = params.currency
-  if (params.paused)
-    par.paused = params.paused
+CM.prototype.sessionSetParams = function (params, tfa) {
+  var par = {tfa: tfa}
+  var validProps = ['locale', 'currency', 'paused', 'usePinAsTfa']
+  validProps.forEach(function (p) {
+    if (params[p] !== undefined)
+      par[p] = params[p]
+  })
   return this.rpc(C.SESSION_SET_PARAMS, par)
 }
 
