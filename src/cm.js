@@ -60,7 +60,15 @@ function updateServerConfig(target, config) {
     target.log("Server message status: " + config.message)
   target.cmConfiguration = config
   target.lastBlock = config.topBlock
-  target.bitcoinNetwork = target.decodeNetworkName(target.cmConfiguration.network) // === "prodnet" ? Bitcoin.networks.bitcoin : Bitcoin.networks.testnet
+  target.bitcoinNetwork = target.decodeNetworkName(target.cmConfiguration.network)
+  if (config.feeInfo && !target.fees.lastUpdated)
+    target.fees = {
+      detail: config.feeInfo,
+      fastestFee: config.feeInfo.fastestFee,
+      mediumFee: config.feeInfo.mediumFee,
+      maximumAcceptable: config.feeInfo.fastestFee * 3,
+      lastUpdated: new Date()
+    }
 }
 
 function emitEvent(target, event, params) {
@@ -585,7 +593,7 @@ CM.prototype.connect_internal = function (stompEndpoint, config) {
       self.log("[STOMP] Opening websocket (node):", stompEndpoint)
       var ws = new WebSocketClient(stompEndpoint)
       ws.on('error', function (error) {
-        self.log('[connect_internel] CONNECT ERROR:' + error.code)
+        self.log('[connect_internal] CONNECT ERROR:' + error.code)
         deferred.reject(error)
       })
       this.stompClient = Stomp.over(ws, options)
@@ -839,6 +847,10 @@ CM.prototype.pushTx = function (hex) {
   return this.rpc(C.UTILS_PUSH_TX, {hex: hex})
 }
 
+CM.prototype.getFeeInfo = function () {
+  return this.rpc(C.UTILS_FEE_INFO)
+}
+
 CM.prototype.ping = function () {
   return this.rpc(C.UTILS_PING)
 }
@@ -991,7 +1003,8 @@ CM.prototype.walletRegister = function (seed, params) {
     //id: loginKey.getPublicKeyBuffer().toString('hex'),
     //chainCode: loginKey.chainCode.toString('hex'),
     sessionName: params.sessionName,
-    deviceId: params.deviceId
+    deviceId: params.deviceId,
+    usePinAsTfa: params.usePinAsTfa
   }).then(function (res) {
     self.log("[CM] walletRegister: ", res)
     walletOpen(self, hd, res.wallet)
@@ -2121,7 +2134,7 @@ CM.prototype.getNetworkFeesBitgo = function () {
   })
 }
 
-CM.prototype.updateNetworkFees = function () {
+CM.prototype.updateNetworkFeesFromExternalProviders = function () {
   var self = this
   var maxTries = this.feeProviders.length
   function getFees(n) {
@@ -2141,6 +2154,19 @@ CM.prototype.updateNetworkFees = function () {
     return self.fees = {
       detail: res,
       fastestFee: res.fastestFee,
+      maximumAcceptable: res.fastestFee * 3,
+      lastUpdated: new Date()
+    }
+  })
+}
+
+CM.prototype.updateNetworkFees = function () {
+  var self = this
+  this.getFeeInfo().then(function (res) {
+    return self.fees = {
+      detail: res.feeInfo,
+      fastestFee: res.feeInfo.fastestFee,
+      mediumFee: res.feeInfo.mediumFee,
       maximumAcceptable: res.fastestFee * 3,
       lastUpdated: new Date()
     }
