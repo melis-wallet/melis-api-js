@@ -1691,7 +1691,7 @@ CM.prototype.analyzeTx = function (state, options) {
     for (i = 0; i < recipients.length; i++)
       if (!recipients[i].validated)
         error = "Missing recipient"
-  var extimatedTxSize = this.estimateTxSize(account, tx)
+  var extimatedTxSize = this.estimateTxSizeFromAccount(account, tx)
   var maximumAcceptableFee = extimatedTxSize * this.fees.maximumAcceptable
   var fees = amountInOur - amountToRecipients - amountToChange - amountToUnknown
   if (!error)
@@ -2162,12 +2162,12 @@ CM.prototype.updateNetworkFeesFromExternalProviders = function () {
 
 CM.prototype.updateNetworkFees = function () {
   var self = this
-  this.getFeeInfo().then(function (res) {
+  return this.getFeeInfo().then(function (res) {
     return self.fees = {
       detail: res.feeInfo,
       fastestFee: res.feeInfo.fastestFee,
       mediumFee: res.feeInfo.mediumFee,
-      maximumAcceptable: res.fastestFee * 3,
+      maximumAcceptable: res.feeInfo.fastestFee * 3,
       lastUpdated: new Date()
     }
   })
@@ -2204,8 +2204,18 @@ CM.prototype.prepareAddressSignature = function (keyPair, prefix) {
   }
 }
 
+CM.prototype.estimateInputSigSize = function (numAccounts, minSignatures) {
+  var redeemScriptSize = numAccounts * 34 + 3
+  var signaturesSize = minSignatures * 72 + 3
+  return redeemScriptSize + signaturesSize + 3
+}
+
+CM.prototype.estimateTxSize = function (numInputs, numRecipients, inputSigSize) {
+  return 10 + numRecipients * 34 + numInputs * (inputSigSize + 72)
+}
+
 // Needs accountInfo
-CM.prototype.estimateInputSigSize = function (account) {
+CM.prototype.estimateInputSigSizeFromAccount = function (account) {
   if (account.type === C.TYPE_PLAIN_HD || account.type === C.TYPE_LEGACY)
     return 148
   var accountInfo = account.info
@@ -2214,15 +2224,12 @@ CM.prototype.estimateInputSigSize = function (account) {
   var hasServerSignature = accountInfo.serverSignature ? 1 : 0
   var numPubKeys = accountInfo.cosigners.length + hasServerSignature
   var minSignatures = accountInfo.minSignatures + hasServerSignature
-  var redeemScriptSize = numPubKeys * 34 + 3
-  var signaturesSize = minSignatures * 72 + 3
-  return redeemScriptSize + signaturesSize + 3
+  return this.estimateInputSigSize(numPubKeys, minSignatures)
 }
 
-CM.prototype.estimateTxSize = function (account, tx) {
-  var numInputs = tx.ins.length
-  var numRecipients = tx.outs.length
-  return 10 + numRecipients * 34 + numInputs * (this.estimateInputSigSize(account) + 72)
+// Needs accountInfo
+CM.prototype.estimateTxSizeFromAccount = function (account, tx) {
+  return this.estimateTxSize(tx.ins.length, tx.outs.length, this.estimateInputSigSizeFromAccount(account))
 }
 
 CM.prototype.rebuildStateFromPtx = function (account, ptx) {
