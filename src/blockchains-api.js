@@ -185,6 +185,8 @@ API.prototype.getProvider = function (name, isTestnet) {
   });
 };
 
+// TODO: https://explorer.blockstack.org/
+
 module.exports = API;
 
 //API.prototype.getTxOutputs = function (arr, providerName) {

@@ -1897,7 +1897,6 @@ CM.prototype.tfaEnrollStart = function (params, tfa) {
 }
 
 CM.prototype.tfaEnrollFinish = function (tfa) {
-  this.log("[CM tfaEnrollFinish] " + (tfa ? JSON.stringify(tfa) : "NONE"))
   return this.rpc(C.TFA_ENROLL_FINISH, {tfa: tfa}).then(function (res) {
     //console.log("tfaEnrollFinish: " + JSON.stringify(res))
     return res.tfaRes
@@ -1915,14 +1914,8 @@ CM.prototype.tfaDeviceDelete = function (param, tfa) {
   })
 }
 
-CM.prototype.tfaDeviceProposeDelete = function (param) {
-  return this.rpc(C.TFA_DEVICE_PROPOSE_DELETE, {
-    name: param.name,
-    value: param.value
-  }).then(function (res) {
-    //console.log("tfaDeviceProposeDelete: ", res)
-    return res
-  })
+CM.prototype.tfaProposeDeleteDevices = function () {
+  return this.rpc(C.TFA_PROPOSE_DELETE_DEVICES)
 }
 
 CM.prototype.tfaDeviceSetMeta = function (params, tfa) {
@@ -1955,7 +1948,6 @@ CM.prototype.tfaAuthStart = function (params) {
 }
 
 CM.prototype.tfaAuthValidate = function (tfa) {
-  this.log("[CM tfaAuthValidate] " + JSON.stringify(tfa))
   return this.rpc(C.TFA_AUTH_VALIDATE, {tfa: tfa}).then(function (res) {
     //console.log("tfaAuthValidate: " + JSON.stringify(res))
     return res.tfaRes
