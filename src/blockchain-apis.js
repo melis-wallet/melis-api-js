@@ -1,8 +1,5 @@
-"use strict";
-require('es6-promise').polyfill();
-//var Promise = require('es6-promise').Promise;
-require('isomorphic-fetch');
-//var fetch = require('node-fetch');
+//require('es6-promise').polyfill();
+require('isomorphic-fetch')
 
 var forEachOut = function (outs, fun) {
   var promises = [];
@@ -37,9 +34,8 @@ var parseBtcAmount = function (s) {
 //https://blockexplorer.com/api/tx/5756ff16e2b9f881cd15b8a7e478b4899965f87f553b6210d0f8e5bf5be7df1d
 var blockexplorer_provider = {
   getTxOutput: function (hash, output) {
-    return fetch("https://blockexplorer.com/api/tx/" + hash, {
-      mode: 'no-cors'
-    }).then(function (res) {
+    //return fetch("https://blockexplorer.com/api/tx/" + hash, {      mode: 'no-cors'    }).then(function (res) {
+    return fetch("https://blockexplorer.com/api/tx/" + hash).then(function (res) {
       return res.json();
     }).then(function (res) {
       var vouts = res.vout;
@@ -58,9 +54,8 @@ var blockchain_provider = {
   //torUrl: "https://blockchainbdgpzk.onion/",
   getTxOutputs: function (outs) {
     return forEachOut(outs, function (out) {
-      return fetch("https://blockchain.info/rawtx/" + out.tx + "?cors=true", {
-        mode: 'no-cors'
-      }).then(function (res) {
+      // return fetch("https://blockchain.info/rawtx/" + out.tx + "?cors=true", {mode: 'no-cors'}).then(function (res) {
+      return fetch("https://blockchain.info/rawtx/" + out.tx + "?cors=true").then(function (res) {
         return res.json();
       }).then(function (res) {
         var vouts = res.out;
@@ -78,49 +73,162 @@ var blockchain_provider = {
 // Batch supported limit=1  outstart=X
 // http://api.blockcypher.com/v1/btc/main/txs/a40c283de4c26b027a5734ff89ce78ade1220fc313befa107ec6c245c24bdec0;60c1f1a3160042152114e2bba45600a5045711c3a8a458016248acec59653471
 var blockcypher_provider = function (isTestnet) {
-  var baseUrl = "http://api.blockcypher.com/v1/btc/" + (isTestnet ? "test3" : "main") + "/txs/";
+  let baseUrl = "http://api.blockcypher.com/v1/btc/" + (isTestnet ? "test3" : "main")
+
+  function getRawBlockChainStatus() {
+    return fetch(baseUrl).then(function (res) {
+      if (res.status !== 200)
+        return null
+      return res.json()
+    })
+  }
+
+  function getRawTxOut(hash, out) {
+    let url = baseUrl + "/txs/" + hash + "?limit=1&outstart=" + out
+    //console.log('Requesting rawtxdata for ' + hash + "/" + out + " url: " + url)
+    return fetch(url).then(function (res) {
+      if (res.status !== 200)
+        return null
+      return res.json()
+    })
+  }
+
   return {
+    submitTx: (hexTx) => {
+      let url = baseUrl + "/txs/push"
+      var body = {tx: hexTx}
+      return fetch(url, {method: 'POST', body: JSON.stringify(body)}).then((res) => {
+        console.log("[blockcypher submitTx] res: ", res)
+        return res
+//        res.json().then(res => {
+//          return {
+//            hash: res.tx.hash,
+//            rawRes: res.json()
+//          }
+//        })
+      })
+    },
+
+    getBlockChainStatus: () => {
+      return getRawBlockChainStatus().then(res => {
+        return {
+          chain: isTestnet ? 'test' : 'main',
+          height: res.height
+                  //hash: res.hash,
+                  //time: res.time
+        }
+      })
+    },
+
+    getRawTxOut: (hash, out) => {
+      return getRawTxOut(hash, out)
+    },
+
     getTxOutputs: function (outs) {
       return forEachOut(outs, function (out) {
-        var url = baseUrl + out.tx + "?limit=1&outstart=" + out.n;
-        return fetch(url, {mode: 'no-cors'}).then(function (res) {
-          return res.json();
-        }).then(function (res) {
-          //console.log(res);
+        return getRawTxOut(out.tx, out.n).then(res => {
+          if (!res)
+            return null
           var data = res.outputs[0];
-          //console.log(data);
           return {
             n: out.n,
             // address: data.addresses[0],
-            amount: data.value
-          };
-        });
-      });
+            amount: data.value,
+            spent: data.spent_by ? {
+              tx: data.spent_by,
+              inputNum: null
+            } : null
+          }
+        })
+      })
     }
-  };
-};
+  }
+}
 
 var chainso_provider = function (isTestnet) {
-  var network = (isTestnet ? "BTCTEST" : "BTC");
+  var network = (isTestnet ? "BTCTEST" : "BTC")
+  let baseUrl = "https://chain.so/api/v2/"
+
+  function getData(url, opts) {
+    console.log("[CHAINSO DEBUG] Request for "+url+" with opts:", opts)
+    return fetch(url, opts).then(function (res) {
+      console.log("[CHAINSO DEBUG] res:", res)
+      if (res.status !== 200)
+        return null
+      return res.json()
+    }).then(json => {
+      if (!json || !json.status === "success")
+        return null
+      return json.data
+    })
+  }
+
+  function getRawBlockChainStatus() {
+    let url = baseUrl + "get_info/" + network
+    return getData(url)
+  }
+
+  function getRawTxOutSpent(hash, out) {
+    let url = baseUrl + "is_tx_spent/" + network + "/" + hash + "/" + out
+    console.log('[chain.so] Requesting is_tx_spent for ' + hash + "/" + out + " url: " + url)
+    return getData(url)
+  }
+
+  function getRawTxOut(hash, out) {
+    let url = baseUrl + "get_tx_outputs/" + network + "/" + hash + "/" + out
+    console.log('[chain.so] Requesting get_tx_output for ' + hash + "/" + out + " url: " + url)
+    return getData(url)
+  }
+
   return {
+    getBlockChainStatus: () => {
+      return getRawBlockChainStatus().then(res => {
+        return {
+          chain: isTestnet ? 'test' : 'main',
+          height: res.blocks
+                  //hash: res.hash,
+                  //time: res.time
+        }
+      })
+    },
+
+    submitTx: (hexTx) => {
+      let url = baseUrl + "send_tx/" + network
+      var body = {tx_hex: hexTx}
+      return getData(url, {method: 'POST', body: JSON.stringify(body)})
+    },
+
+    getRawTxOutSpent: (hash, out) => {
+      return getRawTxOutSpent(hash, out)
+    },
+
+    getRawTxOut: (hash, out) => {
+      return getRawTxOut(hash, out)
+    },
+
     getTxOutputs: function (outs) {
+      let outResult
       return forEachOut(outs, function (out) {
-        return fetch("https://chain.so/api/v2/get_tx_outputs/" + network + "/" + out.tx + "/" + out.n, {
-          mode: 'no-cors'
-        }).then(function (res) {
-          return res.json();
-        }).then(function (res) {
-          var data = res.data;
+        return getRawTxOut(out.tx, out.n).then(res => {
+          if (!res)
+            return null
+          outResult = res.outputs
+          return getRawTxOutSpent(out.tx, out.n)
+        }).then(res => {
           return {
-            n: data.outputs.output_no,
+            n: outResult.output_no,
             // address: data.outputs.address,
-            amount: parseBtcAmount(data.outputs.value)
-          };
-        });
-      });
+            amount: parseBtcAmount(outResult.value),
+            spent: res.spent ? {
+              tx: res.spent.txid,
+              inputNum: res.spent.input_no
+            } : null
+          }
+        })
+      })
     }
-  };
-};
+  }
+}
 
 // https://btc.blockr.io/api/v1/tx/info/60c1f1a3160042152114e2bba45600a5045711c3a8a458016248acec59653471,4addbc5ec75e087a44a34e8c1c3bd05fd495771072879a89a8c9aaa356255cb2
 var blockr_provider = function (isTestnet) {
@@ -129,8 +237,8 @@ var blockr_provider = function (isTestnet) {
     getTxOutputs: function (outs) {
       return forEachOut(outs, function (out) {
         var url = baseUrl + "tx/info/" + out.tx;
-        return fetch(url, {mode: 'no-cors'}).then(function (res) {
-          return res.json();
+        return fetch(url).then(function (res) {
+          return res.json()
         }).then(function (res) {
           var vouts = res.data.vouts;
           var vout = vouts[out.n];
@@ -150,17 +258,17 @@ var blockr_provider = function (isTestnet) {
 var testnet_providers = [
   //{name: "blockexplorer.com", api: blockexplorer_provider},
   //{name: "blockchain.info", api: blockchain_provider},
-  {name: "blockcypher.com", api: blockcypher_provider(1)},
-  {name: "chain.so", api: chainso_provider(1)},
-  {name: "blockr.io", api: blockr_provider(1)}
+  {name: "blockcyphercom", api: blockcypher_provider(1)},
+  {name: "chainso", api: chainso_provider(1)},
+  {name: "blockrio", api: blockr_provider(1)}
 ];
 
 var prodnet_providers = [
   //{name: "blockexplorer.com", api: blockexplorer_provider},
-  {name: "blockchain.info", api: blockchain_provider},
-  {name: "blockcypher.com", api: blockcypher_provider(0)},
-  {name: "chain.so", api: chainso_provider(0)},
-  {name: "blockr.io", api: blockr_provider(0)}
+  {name: "blockchaininfo", api: blockchain_provider},
+  {name: "blockcyphercom", api: blockcypher_provider(0)},
+  {name: "chainso", api: chainso_provider(0)},
+  {name: "blockrio", api: blockr_provider(0)}
 ];
 
 function API(config) {
@@ -186,6 +294,7 @@ API.prototype.getProvider = function (name, isTestnet) {
 };
 
 // TODO: https://explorer.blockstack.org/
+// TODO: https://www.smartbit.com.au/api
 
 module.exports = API;
 

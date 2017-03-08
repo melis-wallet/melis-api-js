@@ -205,7 +205,6 @@ C.LIMIT_DAILY = "daily"
 C.LIMIT_WEEKLY = "weekly"
 C.LIMIT_MONTHLY = "monthly"
 C.LIMIT_NONE = -1
-C.LIMIT_NEW = "newLimit"
 C.LIMIT_REQ_CHANGE = "limitChangeRequest"
 C.LIMIT_REQ_CANCEL = "limitChangeCancel"
 

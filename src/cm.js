@@ -10,6 +10,7 @@ const isNode = require('detect-node')
 const randomBytes = require('randombytes')
 const sjcl = require('sjcl-all')
 const C = require("./cm-constants")
+const BC_APIS = require("./blockchain-apis")
 
 function MelisError(ex, msg) {
   this.ex = ex
@@ -27,12 +28,15 @@ function walletOpen(target, hd, serverWalletData) {
   target.walletData = serverWalletData
   var accounts = {}
   var balances = {}
+  var infos = {}
   target.walletData.accounts.forEach(function (a, i) {
     accounts[a.num] = a
     balances[a.num] = target.walletData.balances[i]
+    infos[a.num] = target.walletData.accountInfos[i]
   })
   target.walletData.accounts = accounts
   target.walletData.balances = balances
+  target.walletData.infos = infos
   emitEvent(target, C.EVENT_WALLET_OPENED, target.walletData)
 }
 
@@ -45,14 +49,16 @@ function updateWalletInfo(target, info) {
   target.walletData.info = info
 }
 
-function updateAccount(target, account, balance) {
+function updateAccount(target, account, balance, info) {
   target.walletData.accounts[account.num] = account
   target.walletData.balances[account.num] = balance
+  if (info)
+    target.walletData.infos[account.num] = info
 }
 
 function updateAccountInfo(target, account, info) {
   if (target.walletData.accounts[account.num])
-    target.walletData.accounts[account.num].info = info
+    target.walletData.infos[account.num] = info
 }
 
 function updateServerConfig(target, config) {
@@ -397,9 +403,9 @@ CM.prototype.deriveKeyFromPath = function (hdnode, path) {
 }
 
 // BIP44 standard derivation
-CM.prototype.deriveHdAccount_internal = function (network, hd, accountNum, chain, index) {
+CM.prototype.deriveHdAccount_explicit = function (network, hd, accountNum, chain, index) {
   var isProdNet = !network || network.wif === Bitcoin.networks.bitcoin.wif
-  // this.log("[deriveAccount] " + accountNum + "/" + chain + "/" + index + " isProdNet: " + isProdNet, network)
+  //this.log("[deriveHdAccount_explicit] " + accountNum + "/" + chain + "/" + index + " isProdNet: " + isProdNet, network)
   var key = hd.deriveHardened(44)
   key = key.deriveHardened(isProdNet ? 0 : 1)
   key = key.deriveHardened(accountNum)
@@ -409,7 +415,7 @@ CM.prototype.deriveHdAccount_internal = function (network, hd, accountNum, chain
 }
 
 CM.prototype.deriveHdAccount = function (accountNum, chain, index) {
-  return this.deriveHdAccount_internal(this.bitcoinNetwork, this.hdWallet, accountNum, chain, index)
+  return this.deriveHdAccount_explicit(this.bitcoinNetwork, this.hdWallet, accountNum, chain, index)
 }
 
 CM.prototype.rpc = function (queue, data, headers, numRetries) {
@@ -975,10 +981,11 @@ CM.prototype.walletOpen = function (seed, params) {
       deviceId: params.deviceId,
       usePinAsTfa: params.usePinAsTfa
     }).then(function (res) {
-      self.log("[CM] walletOpen :", res.wallet.pubKey)
-      walletOpen(self, hd, res.wallet)
+      var wallet = res.wallet
+      self.log("[CM] walletOpen pubKey:" + wallet.pubKey + " #accounts: " + Object.keys(wallet.accounts).length)
+      walletOpen(self, hd, wallet)
       self.lastOpenParams = {seed: seed, sessionName: params.sessionName, deviceId: params.deviceId}
-      return res.wallet
+      return wallet
     })
   })
 }
@@ -1113,7 +1120,7 @@ CM.prototype.accountCreate = function (params) {
     params.xpub = accountHd.neutered().toBase58()
     return self.rpc(C.ACCOUNT_REGISTER, params)
   }).then(function (res) {
-    updateAccount(self, res.account, res.balance)
+    updateAccount(self, res.account, res.balance, res.accountInfo)
     return res
   })
 }
@@ -1135,7 +1142,7 @@ CM.prototype.accountJoin = function (params) {
       meta: params.meta
     })
   }).then(function (res) {
-    updateAccount(self, res.account, res.balance)
+    updateAccount(self, res.account, res.balance, res.accountInfo)
     return res
   })
 }
@@ -1145,7 +1152,7 @@ CM.prototype.accountRefresh = function (account) {
   return this.rpc(C.ACCOUNT_REFRESH, {
     pubId: account.pubId
   }).then(function (res) {
-    updateAccount(self, res.account, res.balance)
+    updateAccount(self, res.account, res.balance, res.accountInfo)
     return res
   })
 }
@@ -1162,7 +1169,7 @@ CM.prototype.accountUpdate = function (account, options) {
     tfa: options.tfa,
     pubMeta: options.pubMeta
   }).then(function (res) {
-    updateAccount(self, res.account, res.balance)
+    updateAccount(self, res.account, res.balance, res.accountInfo)
     return res
   })
 }
@@ -1172,6 +1179,7 @@ CM.prototype.accountDelete = function (account) {
   return this.rpc(C.ACCOUNT_DELETE, {pubId: account.pubId}).then(function (res) {
     delete self.walletData.accounts[account.num]
     delete self.walletData.balances[account.num]
+    delete self.walletData.infos[account.num]
     return res
   })
 }
@@ -1391,7 +1399,7 @@ CM.prototype.ptxVerifyFieldsSignature = function (account, ptx) {
       throwInvalidSignatureEx("PTX owner signature missing")
     var xpub = account.xpub
     if (account.numCosigners > 0) {
-      var cosignerData = account.info.cosigners.find(function (cosigner) {
+      var cosignerData = self.peekAccountInfo(account).cosigners.find(function (cosigner) {
         return cosigner.pubId === ptx.accountPubId
       })
       if (!cosignerData)
@@ -1443,7 +1451,7 @@ CM.prototype.signaturesPrepare = function (params) {
     if (!inputInfo)
       throwUnexpectedEx("Internal error: can't find info data for tx input #" + i)
     var accountAddress = inputInfo.aa
-    var key = self.deriveHdAccount_internal(network, hd, accountNum, accountAddress.chain, accountAddress.hdindex)
+    var key = self.deriveHdAccount_explicit(network, hd, accountNum, accountAddress.chain, accountAddress.hdindex)
     var redeemScript
     if (accountAddress.redeemScript)
       redeemScript = new Buffer(accountAddress.redeemScript, "hex")
@@ -1577,7 +1585,7 @@ CM.prototype.isAddressOfAccount = function (account, accountAddress) {
       addr = key.getAddress()
       break
     default:
-      var info = this.walletData.accounts[account.num].info
+      var info = this.peekAccountInfo(account)
       addr = this.calcP2SH(info, accountAddress.chain, accountAddress.hdindex, this.bitcoinNetwork)
   }
   this.log("[isAddressesOfAccount] type: " + account.type + " accountAddress: " + accountAddress.address + " calcAddr: " + addr)
@@ -1587,15 +1595,15 @@ CM.prototype.isAddressOfAccount = function (account, accountAddress) {
 // updates accountInfo if missing or incomplete
 CM.prototype.ensureAccountInfo = function (account) {
   var self = this
-  var info = self.walletData.accounts[account.num].info
+  var info = self.peekAccountInfo(account)
   if (!info || (info.cosigners && info.cosigners.length > 1 && !info.scriptParams))
     return self.accountGetInfo(account).then(function (info) {
       if (info.cosigners && info.cosigners.length > 1 && !info.scriptParams)
         throwUnexpectedEx("Account not complete yet: have cosigners joined?")
-      return self.walletData.accounts[account.num]
+      return account
     })
   else
-    return Q(self.walletData.accounts[account.num])
+    return Q(account)
 }
 
 CM.prototype.analyzeTx = function (state, options) {
@@ -1691,7 +1699,7 @@ CM.prototype.analyzeTx = function (state, options) {
     for (i = 0; i < recipients.length; i++)
       if (!recipients[i].validated)
         error = "Missing recipient"
-  var extimatedTxSize = this.estimateTxSizeFromAccount(account, tx)
+  var extimatedTxSize = this.estimateTxSizeFromAccountInfo(this.peekAccountInfo(account), tx)
   var maximumAcceptableFee = extimatedTxSize * this.fees.maximumAcceptable
   var fees = amountInOur - amountToRecipients - amountToChange - amountToUnknown
   if (!error)
@@ -2208,22 +2216,19 @@ CM.prototype.estimateTxSize = function (numInputs, numRecipients, inputSigSize) 
   return 10 + numRecipients * 34 + numInputs * (inputSigSize + 72)
 }
 
-// Needs accountInfo
-CM.prototype.estimateInputSigSizeFromAccount = function (account) {
-  if (account.type === C.TYPE_PLAIN_HD || account.type === C.TYPE_LEGACY)
+CM.prototype.estimateInputSigSizeFromAccount = function (accountInfo) {
+  if (!accountInfo || !accountInfo.type)
+    throwUnexpectedEx("No info data for account")
+  if (accountInfo.type === C.TYPE_PLAIN_HD || accountInfo.type === C.TYPE_LEGACY)
     return 148
-  var accountInfo = account.info
-  if (!accountInfo)
-    throwUnexpectedEx("No info data per account #" + account.num)
   var hasServerSignature = accountInfo.serverSignature ? 1 : 0
   var numPubKeys = accountInfo.cosigners.length + hasServerSignature
   var minSignatures = accountInfo.minSignatures + hasServerSignature
   return this.estimateInputSigSize(numPubKeys, minSignatures)
 }
 
-// Needs accountInfo
-CM.prototype.estimateTxSizeFromAccount = function (account, tx) {
-  return this.estimateTxSize(tx.ins.length, tx.outs.length, this.estimateInputSigSizeFromAccount(account))
+CM.prototype.estimateTxSizeFromAccountInfo = function (accountInfo, tx) {
+  return this.estimateTxSize(tx.ins.length, tx.outs.length, this.estimateInputSigSizeFromAccount(accountInfo))
 }
 
 CM.prototype.rebuildStateFromPtx = function (account, ptx) {
@@ -2237,6 +2242,8 @@ CM.prototype.rebuildStateFromPtx = function (account, ptx) {
 }
 
 CM.prototype.validateAddress = function (addr) {
+  if (!addr)
+    return false
   try {
     Bitcoin.address.fromBase58Check(addr)
     return true
@@ -2281,6 +2288,14 @@ CM.prototype.peekAccounts = function () {
   return this.walletData.accounts
 }
 
+CM.prototype.peekAccountInfos = function () {
+  return this.walletData.infos
+}
+
+CM.prototype.peekAccountInfo = function (account) {
+  return this.walletData.infos[account.num]
+}
+
 CM.prototype.derivePubKeys = function (xpubs, chain, hdIndex) {
   return derivePubKeys(xpubs, chain, hdIndex, this.bitcoinNetwork)
 }
@@ -2298,11 +2313,150 @@ CM.prototype.countNumAccounts = function () {
 //  }, 0)
 }
 
+//
+// Recovery code
+//
+
+function pubKeyComparator(a, b) {
+  return a.pubKey.localeCompare(b.pubKey)
+}
+
+CM.prototype.recoveryPrepareInputSig = function (index, accountInfo, unspent, accountsSigData) {
+  var bscript = Bitcoin.script
+  //console.log("input #" + index + ": ", input)
+  //console.log("unspent #" + index + ": ", unspent)
+  this.log("[recovery-prepareInputSig] inputIndex: " + index + " unspent: " + unspent.aa.address + " chain: " + unspent.aa.chain + " hdindex: " + unspent.aa.hdindex + " redeemScr: " + unspent.aa.redeemScript)
+  //console.log("#" + index + " srvPubKey: " + serverSigData.pubKey)
+  var scriptParams = accountInfo.scriptParams
+  var mandatoryPubKeys = []
+  if (scriptParams.mandatoryKeys && scriptParams.mandatoryKeys.length > 0)
+    mandatoryPubKeys = this.derivePubKeys(scriptParams.mandatoryKeys, unspent.aa.chain, unspent.aa.hdindex)
+  var otherPubKeys = this.derivePubKeys(scriptParams.otherKeys ? scriptParams.otherKeys : [], unspent.aa.chain, unspent.aa.hdindex)
+  this.log("accountsSigData: ", accountsSigData)
+  this.log("derived mandatory PubKeys: ", mandatoryPubKeys)
+  this.log("derived other PubKeys: ", otherPubKeys)
+
+  // Let's associate signatures to pubKeys
+  var self = this, mandatorySigs = [], otherSigs = []
+  accountsSigData.forEach(function (sigData) {
+    self.log("SigData pubKey: " + sigData.pubKey)
+    var found = mandatoryPubKeys.find(function (pubKey) {
+      return sigData.pubKey === pubKey
+    })
+    if (found)
+      mandatorySigs.push(sigData)
+    else {
+      found = otherPubKeys.find(function (pubKey) {
+        return sigData.pubKey === pubKey
+      })
+      if (found)
+        otherSigs.push(sigData)
+      else
+        throw new MelisError("Unable to find pubKey in account recovery data: " + sigData.pubKey)
+    }
+  })
+  console.log("#mandatorySigs: " + mandatorySigs.length + " #otherSigs: " + otherSigs.length + " mandatoryServer: " + accountInfo.serverMandatory)
+  if (mandatorySigs.length !== mandatoryPubKeys.length)
+    throw new MelisError('Wrong mandatory signatures -- found: ' + mandatorySigs.length + " needed: " + mandatoryPubKeys.length)
+  if (otherSigs.length !== (accountInfo.minSignatures + (accountInfo.serverMandatory ? 1 : 0) - mandatorySigs.length))
+    throw new MelisError('Wrong additional signatures -- found: ' + otherSigs.length + " mandatory: " + mandatorySigs.length + " mandatoryServer: " + accountInfo.serverMandatory)
+  mandatorySigs.sort(pubKeyComparator)
+  otherSigs.sort(pubKeyComparator)
+
+  var script = 'OP_0';   // Work around a bug in CHECKMULTISIG that is now a required part of the protocol.
+  otherSigs.forEach(function (sigData) {
+    script += ' ' + sigData.sig.toScriptSignature(sigData.hash).toString('hex')
+  })
+  if (mandatorySigs.length > 1 && otherSigs.length > 0)
+    script += ' OP_0'
+  mandatorySigs.forEach(function (sigData) {
+    script += ' ' + sigData.sig.toScriptSignature(sigData.hash).toString('hex')
+  })
+
+  self.log("scriptPubKey: " + script)
+  var scriptSig = bscript.fromASM(script)
+  var bufferRedeemScript = new Buffer(unspent.aa.redeemScript, 'hex')
+  self.log("redeemScript: " + bscript.toASM(bufferRedeemScript))
+
+  var p2shScript = bscript.scriptHashInput(scriptSig, bufferRedeemScript)
+  return p2shScript
+}
+
+CM.prototype.recoveryPrepareTransaction = function (accountInfo, tx, unspents, seeds, serverSignaturesData, network) {
+  this.log("[recoveryPrepareTransaction] unspents: ", unspents)
+  this.log("[recoveryPrepareTransaction] server signature data: ", serverSignaturesData)
+  if (accountInfo.minSignatures !== seeds.length)
+    throw new MelisError('#minSignatures != #seeds')
+
+  var self = this
+  var cosigners = accountInfo.cosigners
+  var hexTx = tx.toHex()
+  var signatures = []
+
+  // Discover which account is owned by which seed
+  var accountsData = []
+  seeds.forEach(function (seed) {
+    var walletHd = Bitcoin.HDNode.fromSeedHex(seed, network)
+    var cosigner = cosigners.find(function (cosigner) {
+      var accountHd = self.deriveHdAccount_explicit(network, walletHd, cosigner.accountNum)
+      return accountHd.neutered().toBase58() === cosigner.xpub
+    })
+    if (!cosigner)
+      throw new MelisError("Unable to find cosigner for seed: " + seed)
+    accountsData.push({seed: seed, accountNum: cosigner.accountNum})
+  })
+
+  var f = function (i) {
+    var data = accountsData[i]
+    return self.signaturesPrepare({
+      hd: Bitcoin.HDNode.fromSeedHex(data.seed, network),
+      accountNum: data.accountNum,
+      rawTx: hexTx,
+      inputs: unspents,
+      network: network
+    }).then(function (accountSigs) {
+      signatures.push(accountSigs.map(function (sigData) {
+        return {
+          pubKey: sigData.key.getPublicKeyBuffer().toString('hex'),
+          sig: sigData.sig,
+          hash: Bitcoin.Transaction.SIGHASH_ALL
+        }
+      }))
+      if (i < accountsData.length - 1)
+        return f(i + 1)
+    })
+  }
+
+  return f(0).then(function () {
+    var allSignatures = []
+    for (var i = 0; i < tx.ins.length; i++) {
+      var arr = []
+      if (accountInfo.serverSignature && accountInfo.serverMandatory) {
+        var serverPubKey = new Buffer(serverSignaturesData[i].pubKey, 'base64').toString('hex')
+        var serverSig = Bitcoin.ECSignature.fromDER(new Buffer(serverSignaturesData[i].sig, 'base64'))
+        var serverSigData = {pubKey: serverPubKey, sig: serverSig, hash: Bitcoin.Transaction.SIGHASH_NONE}
+        arr.push(serverSigData)
+      }
+      signatures.forEach(function (s) {
+        arr.push(s[i])
+      })
+      allSignatures.push(arr)
+    }
+    for (var i = 0; i < tx.ins.length; i++) {
+      var inputSig = self.recoveryPrepareInputSig(i, accountInfo, unspents[i], allSignatures[i])
+      //self.log("#" + i + " inputSig: " + Bitcoin.script.toASM(inputSig))
+      tx.setInputScript(i, inputSig)
+    }
+    return tx
+  })
+}
+
 CM.C = C
 CM.Q = Q
 CM.Bitcoin = Bitcoin
 CM.sjcl = sjcl
 CM.Buffer = Buffer
 CM.fetch = fetch
+CM.BC_APIS = BC_APIS
 
 module.exports = CM
