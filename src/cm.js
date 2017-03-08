@@ -2126,6 +2126,8 @@ CM.prototype.getNetworkFeesBitgo = function () {
   })
 }
 
+// TODO: https://shapeshift.io/btcfee
+
 CM.prototype.updateNetworkFeesFromExternalProviders = function () {
   var self = this
   var maxTries = this.feeProviders.length
