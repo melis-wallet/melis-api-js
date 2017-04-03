@@ -145,12 +145,15 @@ var blockcypher_provider = function (isTestnet) {
   }
 }
 
+/*
+ * chain.so
+ */
 var chainso_provider = function (isTestnet) {
   var network = (isTestnet ? "BTCTEST" : "BTC")
   let baseUrl = "https://chain.so/api/v2/"
 
   function getData(url, opts) {
-    console.log("[CHAINSO DEBUG] Request for "+url+" with opts:", opts)
+    console.log("[CHAINSO DEBUG] Request for " + url + " with opts:", opts)
     return fetch(url, opts).then(function (res) {
       console.log("[CHAINSO DEBUG] res:", res)
       if (res.status !== 200)
@@ -230,16 +233,27 @@ var chainso_provider = function (isTestnet) {
   }
 }
 
-// https://btc.blockr.io/api/v1/tx/info/60c1f1a3160042152114e2bba45600a5045711c3a8a458016248acec59653471,4addbc5ec75e087a44a34e8c1c3bd05fd495771072879a89a8c9aaa356255cb2
+/*
+ * blockr.io
+ */
 var blockr_provider = function (isTestnet) {
   var baseUrl = "https://" + (isTestnet ? "tbtc" : "btc") + ".blockr.io/api/v1/";
   return  {
+    submitTx: (hexTx) => {
+      const url = baseUrl + "tx/push"
+      const body = {hex: hexTx}
+      return fetch(url, {method: 'POST', body: JSON.stringify(body)}).then(res => {
+        return res.json()
+      })
+    },
+
+    // https://btc.blockr.io/api/v1/tx/info/60c1f1a3160042152114e2bba45600a5045711c3a8a458016248acec59653471,4addbc5ec75e087a44a34e8c1c3bd05fd495771072879a89a8c9aaa356255cb2
     getTxOutputs: function (outs) {
       return forEachOut(outs, function (out) {
         var url = baseUrl + "tx/info/" + out.tx;
-        return fetch(url).then(function (res) {
+        return fetch(url).then(res => {
           return res.json()
-        }).then(function (res) {
+        }).then(res => {
           var vouts = res.data.vouts;
           var vout = vouts[out.n];
           return {
