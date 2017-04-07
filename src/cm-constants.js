@@ -1,5 +1,5 @@
 var C = {}
-C.CLIENT_API_VERSION = "0.9.2"
+C.CLIENT_API_VERSION = "0.9.3"
 
 // Websocket official urls
 C.MELIS_DISCOVER = "https://discover.melis.io/api/v1/endpoint/stomp"
