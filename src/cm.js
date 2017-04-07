@@ -861,6 +861,24 @@ CM.prototype.ping = function () {
   return this.rpc(C.UTILS_PING)
 }
 
+CM.prototype.logException = function (account, data, deviceId, agent) {
+  return this.rpc(C.UTILS_LOG_EX, {
+    pubId: account ? account.pubId : null,
+    data: data,
+    deviceId: deviceId,
+    agent: agent
+  })
+}
+
+CM.prototype.logData = function (account, data, deviceId, agent) {
+  return this.rpc(C.UTILS_LOG_DATA, {
+    pubId: account.pubId,
+    data: data,
+    deviceId: deviceId,
+    agent: agent
+  })
+}
+
 CM.prototype.deviceSetPassword = function (deviceName, pin) {
   if (!deviceName || !pin)
     return failPromiseWithBadParam(deviceName ? "pin" : "deviceName", "missing deviceName or pin")
