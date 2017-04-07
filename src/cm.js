@@ -866,7 +866,7 @@ CM.prototype.logException = function (account, data, deviceId, agent) {
     pubId: account ? account.pubId : null,
     data: data,
     deviceId: deviceId,
-    agent: agent
+    ua: typeof agent === "object" ? agent : {application: agent}
   })
 }
 
@@ -875,7 +875,7 @@ CM.prototype.logData = function (account, data, deviceId, agent) {
     pubId: account.pubId,
     data: data,
     deviceId: deviceId,
-    agent: agent
+    ua: typeof agent === "object" ? agent : {application: agent}
   })
 }
 
