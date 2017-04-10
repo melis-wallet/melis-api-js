@@ -73,7 +73,7 @@ var blockchain_provider = {
 // Batch supported limit=1  outstart=X
 // http://api.blockcypher.com/v1/btc/main/txs/a40c283de4c26b027a5734ff89ce78ade1220fc313befa107ec6c245c24bdec0;60c1f1a3160042152114e2bba45600a5045711c3a8a458016248acec59653471
 var blockcypher_provider = function (isTestnet) {
-  let baseUrl = "http://api.blockcypher.com/v1/btc/" + (isTestnet ? "test3" : "main")
+  let baseUrl = "https://api.blockcypher.com/v1/btc/" + (isTestnet ? "test3" : "main")
 
   function getRawBlockChainStatus() {
     return fetch(baseUrl).then(function (res) {
