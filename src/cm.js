@@ -2109,7 +2109,7 @@ CM.prototype.getNetworkFees21 = function () {
 }
 
 CM.prototype.getNetworkFeesBlockCypher = function () {
-  return fetch("http://api.blockcypher.com/v1/btc/main", {
+  return fetch("https://api.blockcypher.com/v1/btc/main", {
     headers: {"user-agent": C.MELIS_USER_AGENT}
   }).then(function (res) {
     if (res && res.status === 200)
