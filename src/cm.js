@@ -2087,9 +2087,8 @@ CM.prototype.sessionSetParams = function (params, tfa) {
 }
 
 CM.prototype.getNetworkFees21 = function () {
-  return fetch("https://bitcoinfees.21.co/api/v1/fees/recommended", {
-    headers: {"user-agent": C.MELIS_USER_AGENT}
-  }).then(function (res) {
+  var self = this
+  return fetch("https://bitcoinfees.21.co/api/v1/fees/recommended").then(function (res) {
     if (res && res.status === 200)
       return res.json()
     else
@@ -2104,14 +2103,14 @@ CM.prototype.getNetworkFees21 = function () {
       slowFee: val.hourFee
     }
   }).catch(function (err) {
+    self.log("Error reading fees from 21.co:", err)
     return Q(null)
   })
 }
 
 CM.prototype.getNetworkFeesBlockCypher = function () {
-  return fetch("https://api.blockcypher.com/v1/btc/main", {
-    headers: {"user-agent": C.MELIS_USER_AGENT}
-  }).then(function (res) {
+  var self = this
+  return fetch("https://api.blockcypher.com/v1/btc/main").then(function (res) {
     if (res && res.status === 200)
       return res.json()
     else
@@ -2125,29 +2124,30 @@ CM.prototype.getNetworkFeesBlockCypher = function () {
       mediumFee: Math.round(val.medium_fee_per_kb / 1024),
       slowFee: Math.round(val.low_fee_per_kb / 1024)
     }
-  }).catch(function () {
+  }).catch(function (err) {
+    self.log("Error reading fees from blockcypher.com:", err)
     return Q(null)
   })
 }
 
 CM.prototype.getNetworkFeesBitgo = function () {
-  return fetch("https://www.bitgo.com/api/v1/tx/fee?numBlocks=6", {
-    headers: {"user-agent": C.MELIS_USER_AGENT}
-  }).then(function (res) {
+  var self = this
+  return fetch("https://www.bitgo.com/api/v1/tx/fee?numBlocks=6").then(function (res) {
     if (res && res.status === 200)
       return res.json()
     else
       return null
   }).then(function (val) {
-    if (!val.feeByBlockTarget || !val.feeByBlockTarget[1] || !val.feeByBlockTarget[3] || !val.feeByBlockTarget[6])
+    if (!val.feeByBlockTarget || !val.feeByBlockTarget[2] || !val.feeByBlockTarget[4] || !val.feeByBlockTarget[6])
       return null
     return {
       provider: "bitgo.com",
-      fastestFee: Math.round(val.feeByBlockTarget[1] / 1024),
-      mediumFee: Math.round(val.feeByBlockTarget[3] / 1024),
+      fastestFee: Math.round(val.feeByBlockTarget[2] / 1024),
+      mediumFee: Math.round(val.feeByBlockTarget[4] / 1024),
       slowFee: Math.round(val.feeByBlockTarget[6] / 1024)
     }
-  }).catch(function () {
+  }).catch(function (err) {
+    self.log("Error reading fees from bitgo:", err)
     return Q(null)
   })
 }
