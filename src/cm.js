@@ -6,6 +6,7 @@ const Stomp = require('webstomp-client')
 const WebSocketClient = require('ws')
 const SockJS = require('sockjs-client')
 const Bitcoin = require('bitcoinjs-lib')
+const BitcoinMessage = require('bitcoinjs-message')
 const isNode = require('detect-node')
 const randomBytes = require('randombytes')
 const sjcl = require('sjcl-all')
@@ -813,21 +814,19 @@ CM.prototype.createTxBuilderFromTxBuffer = function (buf) {
   return Bitcoin.TransactionBuilder.fromTransaction(this.decodeTxFromBuffer(buf), this.bitcoinNetwork)
 }
 
-//CM.prototype.decodeScript = function (hexScript) {
-// return Bitcoin.script.decompile(new Buffer(hexScript, "hex"))
-// // return new Buffer(hexScript, "hex")
-//}
-
 CM.prototype.wifToEcPair = function (wif) {
   return Bitcoin.ECPair.fromWIF(wif, this.bitcoinNetwork)
 }
 
 CM.prototype.signMessage = function (keyPair, message) {
-  return Bitcoin.message.sign(keyPair, message, this.bitcoinNetwork)
+  //return Bitcoin.message.sign(keyPair, message, this.bitcoinNetwork)
+  var pk = keyPair.d.toBuffer(32)
+  return BitcoinMessage.sign(message, this.bitcoinNetwork.messagePrefix, pk, true)
 }
 
 CM.prototype.verifyBitcoinMessageSignature = function (address, signature, message) {
-  return Bitcoin.message.verify(address, signature, message, this.bitcoinNetwork)
+  //return Bitcoin.message.verify(address, signature, message, this.bitcoinNetwork)
+  return BitcoinMessage.verify(message, this.bitcoinNetwork.messagePrefix, address, signature)
 }
 
 CM.prototype.decodeAddressFromScript = function (script) {
@@ -1589,7 +1588,7 @@ CM.prototype.calcP2SH = function (accountInfo, chain, hdIndex, network) {
   }
   this.log("[calcP2SH] script: " + script)
   var redeemScript = Bitcoin.script.fromASM(script)
-  var scriptPubKey = Bitcoin.script.scriptHashOutput(Bitcoin.crypto.hash160(redeemScript))
+  var scriptPubKey = Bitcoin.script.scriptHash.output.encode(Bitcoin.crypto.hash160(redeemScript))
   //this.log("redeemScript: ", Bitcoin.script.toASM(redeemScript))
   //this.log("scriptPubKey: ", Bitcoin.script.toASM(scriptPubKey))
   return Bitcoin.address.fromOutputScript(scriptPubKey, network)
@@ -2396,7 +2395,7 @@ CM.prototype.recoveryPrepareInputSig = function (index, accountInfo, unspent, ac
   var bufferRedeemScript = new Buffer(unspent.aa.redeemScript, 'hex')
   self.log("redeemScript: " + bscript.toASM(bufferRedeemScript))
 
-  var p2shScript = bscript.scriptHashInput(scriptSig, bufferRedeemScript)
+  var p2shScript = Bitcoin.script.scriptHash.input.encode(scriptSig, bufferRedeemScript)
   return p2shScript
 }
 

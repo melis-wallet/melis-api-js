@@ -16,14 +16,9 @@
     "type": "git",
     "url": "https://github.com/melis-wallet/melis-api-js.git"
   },
-  "devDependencies": {
-    "browserify": "latest",
-    "jshint": "latest",
-    "mocha": "latest",
-    "uglify-js": "latest"
-  },
   "dependencies": {
-    "bitcoinjs-lib": "^2.3.0",
+    "bitcoinjs-lib": "^3.0.2",
+    "bitcoinjs-message": "^1.0.1",
     "detect-node": "^2.0.3",
     "ecurve": "^1.0.5",
     "isomorphic-fetch": "^2.2.1",
