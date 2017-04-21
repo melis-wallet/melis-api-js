@@ -421,8 +421,10 @@ CM.prototype.deriveHdAccount = function (accountNum, chain, index) {
 
 CM.prototype.rpc = function (queue, data, headers, numRetries) {
   this.log("[RPC] q: " + queue + (headers ? " h: " + JSON.stringify(headers) : " no headers") + (data ? " data: " + JSON.stringify(data) : " no data"))
+  if (!this.connected)
+    return Q.reject(buildConnectionFailureEx("RPC call without connection"))
   if (!queue)
-    throwBadParamEx('queue', "RPC call without defined queue")
+    return Q.reject(buildBadParamEx('queue', "RPC call without defined queue"))
   var deferred = Q.defer()
   this.rpcCounter++
   if (Object.keys(this.waitingReplies).length === 0) {
