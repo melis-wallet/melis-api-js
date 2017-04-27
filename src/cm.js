@@ -1229,9 +1229,10 @@ CM.prototype.setLocktimeDays = function (account, days, tfa) {
   })
 }
 
-CM.prototype.getRecoveryInfo = function (account) {
+CM.prototype.getRecoveryInfo = function (account, fromDate) {
   return this.rpc(C.ACCOUNT_GET_RECOVERY_INFO, {
-    pubId: account.pubId
+    pubId: account.pubId,
+    fromDate: fromDate
   })
 }
 
