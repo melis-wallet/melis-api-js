@@ -472,9 +472,10 @@ CM.prototype.simpleRpcSlice = function (queue, data) {
 }
 
 // Fetch the STOMP endpoint from the melis discover server
-function fetchStompEndpoint(self, config) {
-  self.log("Discovering STOMP endpoint using: ", self.apiDiscoveryUrl)
-  return fetch(self.apiDiscoveryUrl, {
+function fetchStompEndpoint(self) {
+  var discoveryUrl = self.apiDiscoveryUrl
+  self.log("Discovering STOMP endpoint using: ", discoveryUrl)
+  return fetch(discoveryUrl, {
     headers: {"user-agent": "melis-js-api/" + C.CLIENT_API_VERSION}
   }).then(function (res) {
     if (res.status !== 200)
@@ -485,11 +486,13 @@ function fetchStompEndpoint(self, config) {
     self.apiUrls = discovered
     if (discovered.publicUrlPrefix || discovered.stompEndpoint)
       return discovered
-    throw new MelisError('DiscoveryEx', 'Missing discovery data')
+    throw new MelisError('DiscoveryEx', 'Missing discovery data from ' + discoveryUrl)
   }).catch(function (res) {
+    if (res.ex === "DiscoveryEx")
+      throw res
     var stringMsg = "" + res
     if (stringMsg.includes("SyntaxError: Unexpected token"))
-      throw new MelisError('DiscoveryEx', 'Unable to discover stompEndpoint')
+      throw new MelisError('DiscoveryEx', 'Unable to discover stompEndpoint from ' + discoveryUrl)
     else
       throw new MelisError('DiscoveryEx', stringMsg)
   })
@@ -558,6 +561,7 @@ function retryConnect(self, config, errorMessage) {
     var timeout = 10 + Math.random() * 10 + Math.random() * (self.autoReconnectDelay / 10)
     self.log("[CM] retryConnect in " + timeout + " seconds")
     return Q.delay(timeout * 1000).then(function () {
+      self.connecting = false
       return self.connect(config)
     })
   } else
@@ -589,7 +593,8 @@ CM.prototype.connect = function (config) {
   return discoverer.then(function (stompEndpoint) {
     return self.connect_internal(stompEndpoint, config)
   }).catch(function (err) {
-    return retryConnect(self, config, 'Unable to connect to ' + self.stompEndpoint + ": " + err.code)
+    self.log("Discover err:", err)
+    return retryConnect(self, config, 'Unable to connect: ' + err.ex + " : " + err.msg)
   })
 }
 
