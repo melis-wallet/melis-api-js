@@ -241,6 +241,7 @@ C.FIELD_AMOUNT = "amount"
 C.FIELD_CREATION_DATE = "creationDate"
 C.FIELD_BLOCK_EXPIRE = "blockExpire"
 C.FIELD_LAST_UPDATED = "lastUpdated"
+C.FIELD_LAST_REQUESTED = "lastRequested"
 
 C.MSG_PREFIX_LEGACY_ADDR = "Legacy Address: "
 C.MSG_PREFIX_INSTANT_VERIFY = "Verify Melis instantTx: "
