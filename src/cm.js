@@ -26,19 +26,20 @@ function walletOpen(target, hd, serverWalletData) {
   if (!hd || !serverWalletData)
     throwUnexpectedEx("No data opening wallet")
   target.hdWallet = hd
-  target.walletData = serverWalletData
   var accounts = {}
   var balances = {}
   var infos = {}
-  target.walletData.accounts.forEach(function (a, i) {
+  serverWalletData.accounts.forEach(function (a, i) {
     accounts[a.num] = a
-    balances[a.num] = target.walletData.balances[i]
-    infos[a.num] = target.walletData.accountInfos[i]
+    balances[a.num] = serverWalletData.balances[i]
+    infos[a.num] = serverWalletData.accountInfos[i]
   })
-  target.walletData.accounts = accounts
-  target.walletData.balances = balances
-  target.walletData.infos = infos
-  emitEvent(target, C.EVENT_WALLET_OPENED, target.walletData)
+  target.walletData = {
+    accounts: accounts,
+    balances: balances,
+    infos: infos
+  }
+  emitEvent(target, C.EVENT_WALLET_OPENED, serverWalletData)
 }
 
 function walletClose(target) {
@@ -1067,6 +1068,7 @@ CM.prototype.walletGetNotifications = function (fromDate, pagingInfo) {
 CM.prototype.walletGetInfo = function () {
   var self = this
   return this.rpc(C.WALLET_GET_INFO).then(function (res) {
+    self.log("walletGetInfo:", res)
     updateWalletInfo(self, res.info)
     return res.info
   })
