@@ -30,7 +30,6 @@ console.log((doCreate ? "Creating wallet" : "Opening wallet") + " using seed: " 
 
 cm.connect().then(function (config) {
   console.log("Connected to server")
-  //var queueId = cm.subscribeToCurrencyData(C.CURRENCY_EUR, function (res) { })
   if (doCreate)
     return cm.walletRegister(seed)
   else
