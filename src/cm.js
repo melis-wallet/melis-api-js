@@ -1663,13 +1663,16 @@ CM.prototype.analyzeTx = function (state, options) {
   // TODO: This code must be updated when the transaction contains unknown inputs, like in CoinJoin
   for (i = 0; i < tx.ins.length; i++) {
     var txInput = tx.ins[i]
-    this.log("INPUT #" + i, txInput)
-    for (j = 0; i < inputs.length; i++) {
-      var preparedInput = inputs[i]
-      if (txInput.address === preparedInput.address) {
+    this.log("INPUT #" + i + " " + txInput.hash.toString('hex') + "/" + txInput.index)
+    for (j = 0; j < inputs.length; j++) {
+      var preparedInput = inputs[j]
+      var prepInputHash = new Buffer(preparedInput.tx, 'hex').reverse()
+      if (txInput.hash.equals(prepInputHash) && txInput.index === preparedInput.n) {
+        // We have to trust the server if we don't use an external service (leaking private infos)
         amountInOur += preparedInput.amount
       } else {
-        amountInOther += txInput.amount
+        // The amount is unknown: we need segwit or external block explorer info
+        //amountInOther += txInput.amount
       }
     }
   }
@@ -1737,7 +1740,7 @@ CM.prototype.analyzeTx = function (state, options) {
       error = "Change address not validated"
 //    else if (amountToUnknown !== 0)
 //      error = "Destination address not validated"
-  this.log("[ANALYZE] our-amount-in: " + amountInOur + " other-amount-in: " + amountInOther + " to-dest: " + amountToRecipients + " to-change: " + amountToChange + " to-other: " + amountToUnknown)
+  this.log("[ANALYZE] amountInOur: " + amountInOur + " amountInOther: " + amountInOther + " amountToRecipients: " + amountToRecipients + " amountToChange: " + amountToChange + " amountToUnknown: " + amountToUnknown)
   this.log("[ANALYZE] fees: " + fees + " maxAcceptableFees: " + maximumAcceptableFee + " ptx.fees: " + ptx.fees + " extimatedTxSize: " + extimatedTxSize + " error: " + error + " feeData: ", this.fees)
   return {
     validated: !error,
