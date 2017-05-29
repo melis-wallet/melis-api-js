@@ -599,7 +599,11 @@ CM.prototype.connect = function (config) {
     return self.connect_internal(stompEndpoint, config)
   }).catch(function (err) {
     self.log("Discover err:", err)
-    return retryConnect(self, config, 'Unable to connect: ' + err.ex + " : " + err.msg)
+    var errMsg = 'Unable to connect: ' + err.ex + " : " + err.msg
+    var callback = config ? config.connectProgressCallback : null
+    if (callback && typeof callback === 'function')
+      callback({errMsg: errMsg, err: err})
+    return retryConnect(self, config, errMsg)
   })
 }
 
