@@ -825,10 +825,14 @@ CM.prototype.wifToEcPair = function (wif) {
   return Bitcoin.ECPair.fromWIF(wif, this.bitcoinNetwork)
 }
 
-CM.prototype.signMessage = function (keyPair, message) {
-  //return Bitcoin.message.sign(keyPair, message, this.bitcoinNetwork)
+CM.prototype.signMessageWithKP = function (keyPair, message) {
   var pk = keyPair.d.toBuffer(32)
   return BitcoinMessage.sign(message, this.bitcoinNetwork.messagePrefix, pk, true)
+}
+
+CM.prototype.signMessageWithAA = function (account, aa, message) {
+  var key = this.deriveHdAccount(account.num, aa.chain, aa.hdindex)
+  return this.signMessageWithKP(key.keyPair, message)
 }
 
 CM.prototype.verifyBitcoinMessageSignature = function (address, signature, message) {
@@ -1394,7 +1398,7 @@ CM.prototype.ptxCancel = function (ptx) {
 CM.prototype.ptxSignFields = function (account, ptx) {
   var num1 = simpleRandomInt(C.MAX_SUBPATH), num2 = simpleRandomInt(C.MAX_SUBPATH)
   var node = this.deriveHdAccount(account.num, num1, num2)
-  var sig = this.signMessage(node.keyPair, ptx.rawTx)
+  var sig = this.signMessageWithKP(node.keyPair, ptx.rawTx)
   //return { keyPath: [num1, num2], base64Sig: sig.toString('base64')}
 //    var verified = self.verifyMessage(node.keyPair.getAddress(), sig, msg)
 //    this.log("our xpub: : " + ptx.accountPubId + " path: " + keyPath[0] + " " + keyPath[1])
@@ -2231,7 +2235,7 @@ CM.prototype.prepareAddressSignature = function (keyPair, prefix) {
   return {
     address: address,
     message: message,
-    base64Sig: this.signMessage(keyPair, message).toString('base64')
+    base64Sig: this.signMessageWithKP(keyPair, message).toString('base64')
   }
 }
 
