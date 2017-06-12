@@ -827,7 +827,7 @@ CM.prototype.wifToEcPair = function (wif) {
 
 CM.prototype.signMessageWithKP = function (keyPair, message) {
   var pk = keyPair.d.toBuffer(32)
-  return BitcoinMessage.sign(message, this.bitcoinNetwork.messagePrefix, pk, true)
+  return BitcoinMessage.sign(message, this.bitcoinNetwork.messagePrefix, pk, true).toString('base64')
 }
 
 CM.prototype.signMessageWithAA = function (account, aa, message) {
@@ -837,7 +837,7 @@ CM.prototype.signMessageWithAA = function (account, aa, message) {
 
 CM.prototype.verifyBitcoinMessageSignature = function (address, signature, message) {
   //return Bitcoin.message.verify(address, signature, message, this.bitcoinNetwork)
-  return BitcoinMessage.verify(message, this.bitcoinNetwork.messagePrefix, address, signature)
+  return BitcoinMessage.verify(message, this.bitcoinNetwork.messagePrefix, address, new Buffer(signature, 'base64'))
 }
 
 CM.prototype.decodeAddressFromScript = function (script) {
@@ -1408,7 +1408,7 @@ CM.prototype.ptxSignFields = function (account, ptx) {
     data: ptx.id,
     num1: num1,
     num2: num2,
-    signatures: [sig.toString('base64')]
+    signatures: [sig]
   }).then(function (res) {
     return res
   })
@@ -2153,13 +2153,13 @@ CM.prototype.getNetworkFeesBitgo = function () {
     else
       return null
   }).then(function (val) {
-    if (!val.feeByBlockTarget || !val.feeByBlockTarget[2] || !val.feeByBlockTarget[4] || !val.feeByBlockTarget[6])
+    if (!val.feeByBlockTarget || !val.feeByBlockTarget[2] || !val.feeByBlockTarget[4] || !val.feeByBlockTarget[10])
       return null
     return {
       provider: "bitgo.com",
       fastestFee: Math.round(val.feeByBlockTarget[2] / 1024),
       mediumFee: Math.round(val.feeByBlockTarget[4] / 1024),
-      slowFee: Math.round(val.feeByBlockTarget[6] / 1024)
+      slowFee: Math.round(val.feeByBlockTarget[10] / 1024)
     }
   }).catch(function (err) {
     self.log("Error reading fees from bitgo:", err)
@@ -2235,7 +2235,7 @@ CM.prototype.prepareAddressSignature = function (keyPair, prefix) {
   return {
     address: address,
     message: message,
-    base64Sig: this.signMessageWithKP(keyPair, message).toString('base64')
+    base64Sig: this.signMessageWithKP(keyPair, message)
   }
 }
 
