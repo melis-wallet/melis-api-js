@@ -831,6 +831,8 @@ CM.prototype.signMessageWithKP = function (keyPair, message) {
 }
 
 CM.prototype.signMessageWithAA = function (account, aa, message) {
+  if (account.type !== C.TYPE_PLAIN_HD)
+    throw new MelisError('CmBadParamException','Only single signature accounts can sign messages')
   var key = this.deriveHdAccount(account.num, aa.chain, aa.hdindex)
   return this.signMessageWithKP(key.keyPair, message)
 }
@@ -2385,14 +2387,14 @@ CM.prototype.recoveryPrepareInputSig = function (index, accountInfo, unspent, ac
       if (found)
         otherSigs.push(sigData)
       else
-        throw new MelisError("Unable to find pubKey in account recovery data: " + sigData.pubKey)
+        throw new MelisError('CmBadParamException', "Unable to find pubKey in account recovery data: " + sigData.pubKey)
     }
   })
   console.log("#mandatorySigs: " + mandatorySigs.length + " #otherSigs: " + otherSigs.length + " mandatoryServer: " + accountInfo.serverMandatory)
   if (mandatorySigs.length !== mandatoryPubKeys.length)
-    throw new MelisError('Wrong mandatory signatures -- found: ' + mandatorySigs.length + " needed: " + mandatoryPubKeys.length)
+    throw new MelisError('CmBadParamException', 'Wrong mandatory signatures -- found: ' + mandatorySigs.length + " needed: " + mandatoryPubKeys.length)
   if (otherSigs.length !== (accountInfo.minSignatures + (accountInfo.serverMandatory ? 1 : 0) - mandatorySigs.length))
-    throw new MelisError('Wrong additional signatures -- found: ' + otherSigs.length + " mandatory: " + mandatorySigs.length + " mandatoryServer: " + accountInfo.serverMandatory)
+    throw new MelisError('CmBadParamException', 'Wrong additional signatures -- found: ' + otherSigs.length + " mandatory: " + mandatorySigs.length + " mandatoryServer: " + accountInfo.serverMandatory)
   mandatorySigs.sort(pubKeyComparator)
   otherSigs.sort(pubKeyComparator)
 
@@ -2419,7 +2421,7 @@ CM.prototype.recoveryPrepareTransaction = function (accountInfo, tx, unspents, s
   this.log("[recoveryPrepareTransaction] unspents: ", unspents)
   this.log("[recoveryPrepareTransaction] server signature data: ", serverSignaturesData)
   if (accountInfo.minSignatures !== seeds.length)
-    throw new MelisError('#minSignatures != #seeds')
+    throw new MelisError('CmBadParamException', '#minSignatures != #seeds')
 
   var self = this
   var cosigners = accountInfo.cosigners
@@ -2435,7 +2437,7 @@ CM.prototype.recoveryPrepareTransaction = function (accountInfo, tx, unspents, s
       return accountHd.neutered().toBase58() === cosigner.xpub
     })
     if (!cosigner)
-      throw new MelisError("Unable to find cosigner for seed: " + seed)
+      throw new MelisError('CmBadParamException', "Unable to find cosigner for seed: " + seed)
     accountsData.push({seed: seed, accountNum: cosigner.accountNum})
   })
 
