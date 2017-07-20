@@ -420,8 +420,13 @@ CM.prototype.deriveHdAccount_explicit = function (network, hd, accountNum, chain
   return key.derive(chain).derive(index)
 }
 
-CM.prototype.deriveHdAccount = function (accountNum, chain, index) {
-  return this.deriveHdAccount_explicit(this.bitcoinNetwork, this.hdWallet, accountNum, chain, index)
+CM.prototype.deriveHdAccount = function (accountNum, chain, hdindex) {
+  return this.deriveHdAccount_explicit(this.bitcoinNetwork, this.hdWallet, accountNum, chain, hdindex)
+}
+
+CM.prototype.accountAddressToWIF = function (account, aa) {
+  var key = this.deriveHdAccount(account.num, aa.chain, aa.hdindex)
+  return key.keyPair.toWIF()
 }
 
 CM.prototype.rpc = function (queue, data, headers, numRetries) {
@@ -832,7 +837,7 @@ CM.prototype.signMessageWithKP = function (keyPair, message) {
 
 CM.prototype.signMessageWithAA = function (account, aa, message) {
   if (account.type !== C.TYPE_PLAIN_HD)
-    throw new MelisError('CmBadParamException','Only single signature accounts can sign messages')
+    throw new MelisError('CmBadParamException', 'Only single signature accounts can sign messages')
   var key = this.deriveHdAccount(account.num, aa.chain, aa.hdindex)
   return this.signMessageWithKP(key.keyPair, message)
 }
