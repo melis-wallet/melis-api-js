@@ -10,7 +10,6 @@ C.QUEUE_RPC_REPLY = "/user/queue/rpc"
 C.QUEUE_RPC_ERROR = "/user/queue/errors"
 C.QUEUE_SERVER_EVENTS = "/user/queue/messages"
 C.QUEUE_TICKERS_PREFIX = "/topic/ticker/"
-C.QUEUE_QUOTES_PREFIX = "/topic/quotes/"  // DEPRECACTED: please user the TICKERS_PREFIX queue instead
 C.QUEUE_QUOTE_HISTORY_PREFIX = "/topic/quoteHistory/"
 C.QUEUE_BLOCKS = "/topic/blocks"
 C.QUEUE_PUBLIC_MSGS = "/topic/messages"

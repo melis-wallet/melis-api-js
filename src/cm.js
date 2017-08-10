@@ -765,7 +765,7 @@ CM.prototype.subscribe = function (queue, callback, headers) {
     throwBadParamEx('queue', "Call to subscribe without defined queue or callback")
   var self = this
   return this.stompClient.subscribe(queue, function (res) {
-    //self.log("[CM] response to subscribe " + queue + " : " + res)
+    //self.log("[CM] message to queue " + queue + " : ", res)
     var msg = JSON.parse(res.body)
     callback(msg)
   }, headers)
@@ -2154,19 +2154,21 @@ CM.prototype.getNetworkFeesBlockCypher = function () {
 
 CM.prototype.getNetworkFeesBitgo = function () {
   var self = this
-  return fetch("https://www.bitgo.com/api/v1/tx/fee?numBlocks=6").then(function (res) {
+  return fetch("https://www.bitgo.com/api/v1/tx/fee?numBlocks=4").then(function (res) {
     if (res && res.status === 200)
       return res.json()
     else
       return null
   }).then(function (val) {
-    if (!val.feeByBlockTarget || !val.feeByBlockTarget[2] || !val.feeByBlockTarget[4] || !val.feeByBlockTarget[10])
+    if (!val.feePerKb)
       return null
+//    if (!val.feeByBlockTarget || !val.feeByBlockTarget[2] || !val.feeByBlockTarget[4] || !val.feeByBlockTarget[10])
+//      return null
     return {
       provider: "bitgo.com",
-      fastestFee: Math.round(val.feeByBlockTarget[2] / 1024),
-      mediumFee: Math.round(val.feeByBlockTarget[4] / 1024),
-      slowFee: Math.round(val.feeByBlockTarget[10] / 1024)
+      fastestFee: Math.round(val.feePerKb / 1024),
+      mediumFee: Math.round((val.feePerKb * 0.8) / 1024),
+      slowFee: Math.round((val.feePerKb * 0.6) / 1024)
     }
   }).catch(function (err) {
     self.log("Error reading fees from bitgo:", err)
