@@ -1378,6 +1378,8 @@ CM.prototype.ptxPrepare = function (account, recipients, options) {
     params.ptxOptions.doInstant = options.doInstant
   if (options.disableRbf)
     params.ptxOptions.disableRbf = options.disableRbf
+  if (options.satoshisPerByte)
+    params.ptxOptions.satoshisPerByte = options.satoshisPerByte
   this.log("[CM ptxPrepare] params:", params)
   return this.rpc(C.ACCOUNT_PTX_PREPARE, params)
 }
