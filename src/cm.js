@@ -1108,23 +1108,23 @@ CM.prototype.aliasDefine = function (account, alias) {
   return this.rpc(C.ACCOUNT_ALIAS_DEFINE, {pubId: account.pubId, name: alias})
 }
 
-CM.prototype.clientMetaSet = function (name, value) {
-  return this.rpc(C.WALLET_CLIENT_META_SET, {name: name, meta: value})
+CM.prototype.walletMetaSet = function (name, value) {
+  return this.rpc(C.WALLET_META_SET, {name: name, meta: value})
 }
 
-CM.prototype.clientMetaGet = function (name) {
-  return this.rpc(C.WALLET_CLIENT_META_GET, {name: name}).then(function (res) {
+CM.prototype.walletMetaGet = function (name) {
+  return this.rpc(C.WALLET_META_GET, {name: name}).then(function (res) {
     return res.meta
   })
 }
 
-CM.prototype.clientMetasGet = function (pagingInfo) {
+CM.prototype.walletMetasGet = function (pagingInfo) {
   var pars = addPagingInfo({}, pagingInfo)
-  return this.simpleRpcSlice(C.WALLET_CLIENT_METAS_GET, pars)
+  return this.simpleRpcSlice(C.WALLET_METAS_GET, pars)
 }
 
-CM.prototype.clientMetaDelete = function (name) {
-  return this.rpc(C.WALLET_CLIENT_META_DELETE, {name: name})
+CM.prototype.walletMetaDelete = function (name) {
+  return this.rpc(C.WALLET_META_DELETE, {name: name})
 }
 
 //
