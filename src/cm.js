@@ -13,6 +13,8 @@ const sjcl = require('sjcl-all')
 const C = require("./cm-constants")
 const BC_APIS = require("./blockchain-apis")
 
+Bitcoin.Transaction.SIGHASH_BITCOINCASHBIP143 = 0x40
+
 function MelisError(ex, msg) {
   this.ex = ex
   this.msg = msg
@@ -1497,7 +1499,12 @@ CM.prototype.signaturesPrepare = function (params) {
     else
       redeemScript = Bitcoin.address.toOutputScript(key.getAddress(), network) // o inputInfo.script
     //self.log("aa.script " + accountAddress.redeemScript)
-    var hashForSignature = tx.hashForSignature(i, redeemScript, Bitcoin.Transaction.SIGHASH_ALL)
+    var hashForSignature
+    //if (account && account.chain.indexOf(C.CHAIN_BCH) >= 0)
+    if (inputInfo.chain.indexOf(C.CHAIN_PROD_BCH) >= 0)
+      hashForSignature = tx.hashForWitnessV0(i, redeemScript, inputInfo.amount, Bitcoin.Transaction.SIGHASH_ALL + Bitcoin.Transaction.SIGHASH_BITCOINCASHBIP143)
+    else
+      hashForSignature = tx.hashForSignature(i, redeemScript, Bitcoin.Transaction.SIGHASH_ALL)
     var signature = key.sign(hashForSignature)
     //var sigHex = signature.toDER().toString('hex') // signature.toScriptSignature(Bitcoin.Transaction.SIGHASH_ALL)
     //signatures.push(sigHex)
