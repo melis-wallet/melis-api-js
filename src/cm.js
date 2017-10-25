@@ -546,8 +546,10 @@ function stompDisconnected(self, frame, deferred) {
   if (deferred)
     deferred.reject(frame)
 
+  //self.log("Open requests: ", Object.keys(self.waitingReplies))
   Object.keys(self.waitingReplies).forEach(function (i) {
     var rpcData = self.waitingReplies[i]
+    delete self.waitingReplies[i]
     self.log('[CM] Cancelling open rpc request:', rpcData)
     rpcData.deferred.reject(buildConnectionFailureEx("Disconnected"))
   })
@@ -1114,10 +1116,13 @@ CM.prototype.walletMetaSet = function (name, value) {
   return this.rpc(C.WALLET_META_SET, {name: name, meta: value})
 }
 
-CM.prototype.walletMetaGet = function (name) {
-  return this.rpc(C.WALLET_META_GET, {name: name}).then(function (res) {
-    return res.meta
-  })
+CM.prototype.walletMetaGet = function (param) {
+  if (Array.isArray(param))
+    return this.rpc(C.WALLET_META_GET, {names: param})
+  else
+    return this.rpc(C.WALLET_META_GET, {name: param}).then(function (res) {
+      return res.meta
+    })
 }
 
 CM.prototype.walletMetasGet = function (pagingInfo) {
