@@ -17,8 +17,8 @@
     "url": "https://github.com/melis-wallet/melis-api-js.git"
   },
   "dependencies": {
-    "bitcoinjs-lib": "^3.2.0",
-    "bitcoinjs-message": "^1.0.1",
+    "bitcoinjs-lib": "^3.3.0",
+    "bitcoinjs-message": "^2.0.0",
     "detect-node": "^2.0.3",
     "ecurve": "^1.0.5",
     "isomorphic-fetch": "^2.2.1",
@@ -26,7 +26,7 @@
     "randombytes": "^2.0.5",
     "sjcl-all": "^1.0.1",
     "sockjs-client": "1.1.x",
-    "webstomp-client": "^1.0.3",
+    "webstomp-client": "^1.2.0",
     "ws": "^1.1.1"
   },
   "optionalDependencies": {

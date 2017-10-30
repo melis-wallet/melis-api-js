@@ -836,7 +836,7 @@ CM.prototype.wifToEcPair = function (wif) {
 
 CM.prototype.signMessageWithKP = function (keyPair, message) {
   var pk = keyPair.d.toBuffer(32)
-  return BitcoinMessage.sign(message, this.bitcoinNetwork.messagePrefix, pk, true).toString('base64')
+  return BitcoinMessage.sign(message, pk, true, this.bitcoinNetwork.messagePrefix).toString('base64')
 }
 
 CM.prototype.signMessageWithAA = function (account, aa, message) {
@@ -848,7 +848,7 @@ CM.prototype.signMessageWithAA = function (account, aa, message) {
 
 CM.prototype.verifyBitcoinMessageSignature = function (address, signature, message) {
   //return Bitcoin.message.verify(address, signature, message, this.bitcoinNetwork)
-  return BitcoinMessage.verify(message, this.bitcoinNetwork.messagePrefix, address, new Buffer(signature, 'base64'))
+  return BitcoinMessage.verify(message, address, new Buffer(signature, 'base64'), this.bitcoinNetwork.messagePrefix)
 }
 
 CM.prototype.decodeAddressFromScript = function (script) {
