@@ -9,8 +9,9 @@ C.MELIS_TEST_DISCOVER = "https://discover-test.melis.io/api/v1/endpoint/stomp"
 C.QUEUE_RPC_REPLY = "/user/queue/rpc"
 C.QUEUE_RPC_ERROR = "/user/queue/errors"
 C.QUEUE_SERVER_EVENTS = "/user/queue/messages"
-C.QUEUE_TICKERS_PREFIX = "/topic/ticker/"
-C.QUEUE_QUOTE_HISTORY_PREFIX = "/topic/quoteHistory/"
+C.QUEUE_TICKERS_PREFIX = "/topic/tickers/"
+C.QUEUE_TICKER_PREFIX = "/topic/ticker/"    // DEPRECATED
+C.QUEUE_TICKER_HISTORY_PREFIX = "/topic/quoteHistory/"
 C.QUEUE_BLOCKS = "/topic/blocks"
 C.QUEUE_PUBLIC_MSGS = "/topic/messages"
 
@@ -218,12 +219,12 @@ C.CHAIN_MAIN = "main"
 C.CHAIN_TESTNET = "test"
 C.CHAIN_REGTEST = "regtest"
 
-C.CHAIN_PROD_BTC = "BTC"
-C.CHAIN_PROD_BCH = "BCH"
-C.CHAIN_TEST_BTC = "TBTC"
-C.CHAIN_TEST_BCH = "TBCH"
-C.CHAIN_REGTEST_BTC = "RBTC"
-C.CHAIN_REGTEST_BCH = "RBCH"
+C.COIN_PROD_BTC = "BTC"
+C.COIN_PROD_BCH = "BCH"
+C.COIN_TEST_BTC = "TBTC"
+C.COIN_TEST_BCH = "TBCH"
+C.COIN_REGTEST_BTC = "RBTC"
+C.COIN_REGTEST_BCH = "RBCH"
 
 C.MAX_SUBPATH = 16777216
 C.MAXIMUM_FEE_PER_BYTE = 120

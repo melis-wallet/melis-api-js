@@ -775,17 +775,24 @@ CM.prototype.subscribe = function (queue, callback, headers) {
   }, headers)
 }
 
+// DEPRECATED
 CM.prototype.subscribeToTickerData = function (currency, callback) {
   if (!currency || !callback)
     throwBadParamEx('currency', "Missing currency or callback while subscribing to ticker: " + currency)
-  var res = this.subscribe(C.QUEUE_TICKERS_PREFIX + currency, callback)
+  var res = this.subscribe(C.QUEUE_TICKER_PREFIX + currency, callback)
   return res.ask === 0 ? null : res
+}
+
+CM.prototype.subscribeToTickers = function (currency, callback) {
+  if (!currency || !callback)
+    throwBadParamEx('currency', "Missing currency or callback while subscribing to tickers")
+  return this.subscribe(C.QUEUE_TICKERS_PREFIX + currency, callback)
 }
 
 CM.prototype.subscribeToQuotationHistory = function (currency, callback) {
   if (!currency || !callback)
     throwBadParamEx('currency', "Missing currency or callback while subscribing to history: " + currency)
-  var res = this.subscribe(C.QUEUE_QUOTE_HISTORY_PREFIX + currency, callback)
+  var res = this.subscribe(C.QUEUE_TICKER_HISTORY_PREFIX + currency, callback)
   return res.ask === 0 ? null : res
 }
 
@@ -1505,8 +1512,7 @@ CM.prototype.signaturesPrepare = function (params) {
       redeemScript = Bitcoin.address.toOutputScript(key.getAddress(), network) // o inputInfo.script
     //self.log("aa.script " + accountAddress.redeemScript)
     var hashForSignature
-    //if (account && account.chain.indexOf(C.CHAIN_BCH) >= 0)
-    if (inputInfo.chain.indexOf(C.CHAIN_PROD_BCH) >= 0)
+    if (inputInfo.coin.indexOf(C.COIN_PROD_BCH) >= 0)
       hashForSignature = tx.hashForWitnessV0(i, redeemScript, inputInfo.amount, Bitcoin.Transaction.SIGHASH_ALL + Bitcoin.Transaction.SIGHASH_BITCOINCASHBIP143)
     else
       hashForSignature = tx.hashForSignature(i, redeemScript, Bitcoin.Transaction.SIGHASH_ALL)
