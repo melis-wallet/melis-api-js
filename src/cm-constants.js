@@ -150,7 +150,7 @@ C.AB_DELETE = C.PREFIX_AB_METHODS + "delete"
 C.AB_UPDATE = C.PREFIX_AB_METHODS + "update"
 
 // Addressbook entry types
-C.AB_TYPE_CM = 'cm'
+C.AB_TYPE_MELIS = 'melis'
 C.AB_TYPE_ADDRESS = 'addr'
 
 // Utilities methods

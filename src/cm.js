@@ -2046,8 +2046,9 @@ CM.prototype.tfaSetAccountConfig = function (account, config, tfa) {
 //
 
 CM.prototype.abAdd = function (entry) {
-  this.log("[CM ab add] " + JSON.stringify(entry))
+  this.log("[CM ab add] ", entry)
   return this.rpc(C.AB_ADD, {
+    coin: entry.coin,
     type: entry.type,
     val: entry.val,
     labels: entry.labels,
@@ -2056,9 +2057,10 @@ CM.prototype.abAdd = function (entry) {
 }
 
 CM.prototype.abUpdate = function (entry) {
-  this.log("[CM abUpdate] " + JSON.stringify(entry))
+  this.log("[CM ab update]", entry)
   return this.rpc(C.AB_UPDATE, {
     id: entry.id,
+    coin: entry.coin,
     type: entry.type,
     val: entry.val,
     labels: entry.labels,
@@ -2067,7 +2069,7 @@ CM.prototype.abUpdate = function (entry) {
 }
 
 CM.prototype.abDelete = function (entry) {
-  this.log("[CM ab delete] " + JSON.stringify(entry))
+  this.log("[CM ab delete]", entry)
   return this.rpc(C.AB_DELETE, {id: entry.id})
 }
 
