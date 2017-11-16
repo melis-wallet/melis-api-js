@@ -10,8 +10,9 @@ C.QUEUE_RPC_REPLY = "/user/queue/rpc"
 C.QUEUE_RPC_ERROR = "/user/queue/errors"
 C.QUEUE_SERVER_EVENTS = "/user/queue/messages"
 C.QUEUE_TICKERS_PREFIX = "/topic/tickers/"
+C.QUEUE_TICKERS_HISTORY_PREFIX = "/topic/tickersHistory/"
 C.QUEUE_TICKER_PREFIX = "/topic/ticker/"    // DEPRECATED
-C.QUEUE_TICKER_HISTORY_PREFIX = "/topic/quoteHistory/"
+C.QUEUE_TICKER_HISTORY_PREFIX = "/topic/quoteHistory/"  // DEPRECATED
 C.QUEUE_BLOCKS = "/topic/blocks"
 C.QUEUE_PUBLIC_MSGS = "/topic/messages"
 
@@ -238,7 +239,12 @@ C.CURRENCY_GBP = "GBP"
 C.CURRENCY_CNY = "CNY"
 
 C.HISTORY_SLIDING_24H = "sliding-24h"
-C.HISTORY_SLIDING_MONTH = "sliding-month"
+C.HISTORY_SLIDING_30D = "sliding-30d"
+C.HISTORY_SLIDING_365D = "sliding-365d"
+
+C.HISTORY_SLIDING_DAILY = "daily"
+C.HISTORY_SLIDING_MONTHLY = "monthly"
+C.HISTORY_SLIDING_YEARLY = "yearly"
 
 C.DIR_ASCENDING = "ASC"
 C.DIR_DESCENDING = "DESC"

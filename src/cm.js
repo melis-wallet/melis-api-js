@@ -769,7 +769,7 @@ CM.prototype.subscribe = function (queue, callback, headers) {
     throwBadParamEx('queue', "Call to subscribe without defined queue or callback")
   var self = this
   return this.stompClient.subscribe(queue, function (res) {
-    //self.log("[CM] message to queue " + queue + " : ", res)
+    self.log("[CM] message to queue " + queue + " : ", res)
     var msg = JSON.parse(res.body)
     callback(msg)
   }, headers)
@@ -783,17 +783,25 @@ CM.prototype.subscribeToTickerData = function (currency, callback) {
   return res.ask === 0 ? null : res
 }
 
+// DEPRECATED
+CM.prototype.subscribeToQuotationHistory = function (currency, callback) {
+  if (!currency || !callback)
+    throwBadParamEx('currency', "Missing currency or callback while subscribing to history: " + currency)
+  var res = this.subscribe(C.QUEUE_TICKER_HISTORY_PREFIX + currency, callback)
+  return res.ask === 0 ? null : res
+}
+
 CM.prototype.subscribeToTickers = function (currency, callback) {
   if (!currency || !callback)
     throwBadParamEx('currency', "Missing currency or callback while subscribing to tickers")
   return this.subscribe(C.QUEUE_TICKERS_PREFIX + currency, callback)
 }
 
-CM.prototype.subscribeToQuotationHistory = function (currency, callback) {
-  if (!currency || !callback)
-    throwBadParamEx('currency', "Missing currency or callback while subscribing to history: " + currency)
-  var res = this.subscribe(C.QUEUE_TICKER_HISTORY_PREFIX + currency, callback)
-  return res.ask === 0 ? null : res
+CM.prototype.subscribeToTickersHistory = function (period, currency, callback) {
+  if (!period || !currency || !callback)
+    throwBadParamEx('currency', "Missing period, currency or callback while subscribing to history: " + currency)
+  var path = C.QUEUE_TICKERS_HISTORY_PREFIX + period + "/" + currency
+  return this.subscribe(path, callback)
 }
 
 //
