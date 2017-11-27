@@ -73,7 +73,8 @@ function updateServerConfig(target, config) {
   if (config.message)
     target.log("Server message status: " + config.message)
   target.cmConfiguration = config
-  target.lastBlock = config.topBlock
+  target.lastBlock = config.topBlock  // LEGACY CODE
+  target.lastBlocks = config.topBlocks
   target.bitcoinNetwork = target.decodeNetworkName(target.cmConfiguration.network)
   if (config.feeInfo && !target.fees.lastUpdated)
     target.fees = {
@@ -160,6 +161,7 @@ function initializePrivateFields(target) {
   target.hdWallet = null
   target.walletData = null
   target.lastBlock = null
+  target.lastBlocks = {}
   target.lastOpenParams = null
   target.cmConfiguration = null // Got from server at connect
   target.bitcoinNetwork = Bitcoin.networks.testnet // Overridden from server at connect
@@ -682,6 +684,7 @@ CM.prototype.connect_internal = function (stompEndpoint, config) {
     self.stompClient.subscribe(C.QUEUE_BLOCKS, function (message) {
       var msg = JSON.parse(message.body)
       self.lastBlock = msg
+      self.lastBlocks[msg.coin] = msg
       emitEvent(self, C.EVENT_BLOCK, msg)
     })
 
@@ -769,7 +772,7 @@ CM.prototype.subscribe = function (queue, callback, headers) {
     throwBadParamEx('queue', "Call to subscribe without defined queue or callback")
   var self = this
   return this.stompClient.subscribe(queue, function (res) {
-    self.log("[CM] message to queue " + queue + " : ", res)
+    // self.log("[CM] message to queue " + queue + " : ", res)
     var msg = JSON.parse(res.body)
     callback(msg)
   }, headers)
@@ -2336,8 +2339,11 @@ CM.prototype.peekRestPrefix = function () {
   return this.apiUrls.restPrefix
 }
 
-CM.prototype.peekTopBlock = function () {
-  return this.lastBlock
+CM.prototype.peekTopBlock = function (coin) {
+  if (!coin)
+    return this.lastBlock
+  else
+    return this.lastBlocks[coin]
 }
 
 CM.prototype.peekWalletPubKey = function () {
