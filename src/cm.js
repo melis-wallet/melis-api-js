@@ -32,9 +32,9 @@ function walletOpen(target, hd, serverWalletData) {
   var balances = {}
   var infos = {}
   serverWalletData.accounts.forEach(function (a, i) {
-    accounts[a.num] = a
-    balances[a.num] = serverWalletData.balances[i]
-    infos[a.num] = serverWalletData.accountInfos[i]
+    accounts[a.pubId] = a
+    balances[a.pubId] = serverWalletData.balances[i]
+    infos[a.pubId] = serverWalletData.accountInfos[i]
   })
   target.walletData = {
     accounts: accounts,
@@ -58,15 +58,15 @@ function updateWalletInfo(target, info) {
 }
 
 function updateAccount(target, account, balance, info) {
-  target.walletData.accounts[account.num] = account
-  target.walletData.balances[account.num] = balance
+  target.walletData.accounts[account.pubId] = account
+  target.walletData.balances[account.pubId] = balance
   if (info)
-    target.walletData.infos[account.num] = info
+    target.walletData.infos[account.pubId] = info
 }
 
 function updateAccountInfo(target, account, info) {
-  if (target.walletData.accounts[account.num])
-    target.walletData.infos[account.num] = info
+  if (target.walletData.accounts[account.pubId])
+    target.walletData.infos[account.pubId] = info
 }
 
 function updateServerConfig(target, config) {
@@ -1238,9 +1238,9 @@ CM.prototype.accountUpdate = function (account, options) {
 CM.prototype.accountDelete = function (account) {
   var self = this
   return this.rpc(C.ACCOUNT_DELETE, {pubId: account.pubId}).then(function (res) {
-    delete self.walletData.accounts[account.num]
-    delete self.walletData.balances[account.num]
-    delete self.walletData.infos[account.num]
+    delete self.walletData.accounts[account.pubId]
+    delete self.walletData.balances[account.pubId]
+    delete self.walletData.infos[account.pubId]
     return res
   })
 }
@@ -2371,7 +2371,7 @@ CM.prototype.peekAccountInfos = function () {
 }
 
 CM.prototype.peekAccountInfo = function (account) {
-  return this.walletData.infos[account.num]
+  return this.walletData.infos[account.pubId]
 }
 
 CM.prototype.derivePubKeys = function (xpubs, chain, hdIndex) {
