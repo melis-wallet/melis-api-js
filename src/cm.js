@@ -64,16 +64,10 @@ function updateAccount(target, account, balance, info) {
     target.walletData.infos[account.pubId] = info
 }
 
-function updateAccountInfo(target, account, info) {
-  if (target.walletData.accounts[account.pubId])
-    target.walletData.infos[account.pubId] = info
-}
-
 function updateServerConfig(target, config) {
   if (config.message)
     target.log("Server message status: " + config.message)
   target.cmConfiguration = config
-  target.lastBlock = config.topBlock  // LEGACY CODE
   target.lastBlocks = config.topBlocks
   target.bitcoinNetwork = target.decodeNetworkName(target.cmConfiguration.network)
   if (config.feeInfo && !target.fees.lastUpdated)
@@ -160,7 +154,6 @@ function initializePrivateFields(target) {
   target.waitingReplies = {}
   target.hdWallet = null
   target.walletData = null
-  target.lastBlock = null
   target.lastBlocks = {}
   target.lastOpenParams = null
   target.cmConfiguration = null // Got from server at connect
@@ -683,7 +676,6 @@ CM.prototype.connect_internal = function (stompEndpoint, config) {
 
     self.stompClient.subscribe(C.QUEUE_BLOCKS, function (message) {
       var msg = JSON.parse(message.body)
-      self.lastBlock = msg
       self.lastBlocks[msg.coin] = msg
       emitEvent(self, C.EVENT_BLOCK, msg)
     })
@@ -776,22 +768,6 @@ CM.prototype.subscribe = function (queue, callback, headers) {
     var msg = JSON.parse(res.body)
     callback(msg)
   }, headers)
-}
-
-// DEPRECATED
-CM.prototype.subscribeToTickerData = function (currency, callback) {
-  if (!currency || !callback)
-    throwBadParamEx('currency', "Missing currency or callback while subscribing to ticker: " + currency)
-  var res = this.subscribe(C.QUEUE_TICKER_PREFIX + currency, callback)
-  return res.ask === 0 ? null : res
-}
-
-// DEPRECATED
-CM.prototype.subscribeToQuotationHistory = function (currency, callback) {
-  if (!currency || !callback)
-    throwBadParamEx('currency', "Missing currency or callback while subscribing to history: " + currency)
-  var res = this.subscribe(C.QUEUE_TICKER_HISTORY_PREFIX + currency, callback)
-  return res.ask === 0 ? null : res
 }
 
 CM.prototype.subscribeToTickers = function (currency, callback) {
@@ -1245,14 +1221,6 @@ CM.prototype.accountDelete = function (account) {
   })
 }
 
-CM.prototype.accountGetInfo = function (account) {
-  var self = this
-  return this.rpc(C.ACCOUNT_GET_INFO, {pubId: account.pubId}).then(function (res) {
-    updateAccountInfo(self, account, res)
-    return res
-  })
-}
-
 CM.prototype.joinCodeGetInfo = function (code) {
   return this.rpc(C.ACCOUNT_GET_JOIN_CODE_INFO, {code: code})
 }
@@ -1660,17 +1628,18 @@ CM.prototype.isAddressOfAccount = function (account, accountAddress) {
   return accountAddress.address === addr
 }
 
-// updates accountInfo if missing or incomplete
+// updates account data if missing or incomplete
 CM.prototype.ensureAccountInfo = function (account) {
   var self = this
   var info = self.peekAccountInfo(account)
-  if (!info || (info.cosigners && info.cosigners.length > 1 && !info.scriptParams))
-    return self.accountGetInfo(account).then(function (info) {
+  if (!info || (info.cosigners && info.cosigners.length > 1 && !info.scriptParams)) {
+    return self.accountRefresh(account).then(function (res) {
+      info = res.accountInfo
       if (info.cosigners && info.cosigners.length > 1 && !info.scriptParams)
         throwUnexpectedEx("Account not complete yet: have cosigners joined?")
-      return account
+      return res.account
     })
-  else
+  } else
     return Q(account)
 }
 
@@ -2340,10 +2309,7 @@ CM.prototype.peekRestPrefix = function () {
 }
 
 CM.prototype.peekTopBlock = function (coin) {
-  if (!coin)
-    return this.lastBlock
-  else
-    return this.lastBlocks[coin]
+  return this.lastBlocks[coin]
 }
 
 CM.prototype.peekWalletPubKey = function () {
