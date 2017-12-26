@@ -12,6 +12,7 @@ const randomBytes = require('randombytes')
 const sjcl = require('sjcl-all')
 const C = require("./cm-constants")
 const BC_APIS = require("./blockchain-apis")
+const Networks = require("./networks")
 
 Bitcoin.Transaction.SIGHASH_BITCOINCASHBIP143 = 0x40
 
@@ -324,6 +325,10 @@ CM.prototype.isTestNet = function () {
 
 CM.prototype.isRegTest = function () {
   return this.cmConfiguration.network === C.CHAIN_REGTEST
+}
+
+CM.prototype.getCoinNetwork = function (coin) {
+  return Networks[coin]
 }
 
 CM.prototype.decodeNetworkName = function (networkName) {
