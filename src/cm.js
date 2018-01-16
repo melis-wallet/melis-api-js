@@ -13,17 +13,7 @@ const sjcl = require('sjcl-all')
 const C = require("./cm-constants")
 const BC_APIS = require("./blockchain-apis")
 const Networks = require("./networks")
-
-Bitcoin.Transaction.SIGHASH_BITCOINCASHBIP143 = 0x40
-
-function MelisError(ex, msg) {
-  this.ex = ex
-  this.msg = msg
-  this.message = "Exception class " + ex + " '" + msg + "'"
-  this.stack = (new Error()).stack
-}
-MelisError.prototype = Object.create(Error.prototype)
-MelisError.prototype.constructor = MelisError
+const MelisError = require("./melis-error")
 
 function walletOpen(target, hd, serverWalletData) {
   if (!hd || !serverWalletData)
@@ -95,8 +85,8 @@ function emitEvent(target, event, params) {
     updateServerConfig(target, params)
   var listeners = target.listeners(event)
   if (!listeners.length) {
-//target.log("[CM emitEvent] nessun listener per l'evento '" + event + "'")
-    target.emit(C.UNHANDLED_EVENT, {name: event, params: params})
+    //target.log("[CM emitEvent] nessun listener per l'evento '" + event + "'")
+    target.emit(C.UNHANDLED_EVENT, { name: event, params: params })
   } else {
     target.emit(event, params)
   }
@@ -118,8 +108,16 @@ function buildBadParamEx(paramName, msg) {
   return err
 }
 
+function buildInvalidAddressEx(address, msg) {
+  return new MelisError('CmInvalidAddressException', msg)
+}
+
 function buildConnectionFailureEx(msg) {
   return new MelisError('ConnectionFailureException', msg)
+}
+
+function failPromiseWithEx(ex) {
+  return Q.reject(ex)
 }
 
 function failPromiseWithBadParam(paramName, msg) {
@@ -131,12 +129,10 @@ function throwBadParamEx(paramName, msg) {
 }
 
 function throwUnexpectedEx(msg) {
-  // throw {ex: 'UnexpectedClientEx', msg: msg}
   throw new MelisError('UnexpectedClientEx', msg)
 }
 
 function throwInvalidSignatureEx(msg) {
-  //throw {ex: 'CmInvalidSignatureException', msg: msg}
   throw new MelisError('CmInvalidSignatureException', msg)
 }
 
@@ -331,6 +327,25 @@ CM.prototype.getCoinNetwork = function (coin) {
   return Networks[coin]
 }
 
+function getDriver(coin) {
+  const driver = Networks[coin]
+  if (!driver)
+    throw new MelisError("Unknown coin: " + coin)
+  return driver
+}
+
+CM.prototype.coinAddressToBytes = function (coin, address) {
+  return getDriver(coin).getAddressBytes(address)
+}
+
+CM.prototype.hashForSignature = function (coin, tx, index, redeemScript, amount, hashFlags) {
+  return getDriver(coin).hashForSignature(tx, index, redeemScript, amount, hashFlags)
+}
+
+CM.prototype.isValidAddress = function (coin, address) {
+  return getDriver(coin).isValidAddress(address)
+}
+
 CM.prototype.decodeNetworkName = function (networkName) {
   return networkName === "main" ? Bitcoin.networks.bitcoin : Bitcoin.networks.testnet
 }
@@ -488,7 +503,7 @@ function fetchStompEndpoint(self) {
   var discoveryUrl = self.apiDiscoveryUrl
   self.log("Discovering STOMP endpoint using: ", discoveryUrl)
   return fetch(discoveryUrl, {
-    headers: {"user-agent": "melis-js-api/" + C.CLIENT_API_VERSION}
+    headers: { "user-agent": "melis-js-api/" + C.CLIENT_API_VERSION }
   }).then(function (res) {
     if (res.status !== 200)
       throw new MelisError('DiscoveryEx', 'Bad status code: ' + res.status)
@@ -600,10 +615,10 @@ CM.prototype.connect = function (config) {
   }
 
   var discoverer = self.stompEndpoint ?
-          Q(self.stompEndpoint) :
-          Q(fetchStompEndpoint(self, config)).then(function (discovered) {
-    return discovered.stompEndpoint
-  })
+    Q(self.stompEndpoint) :
+    Q(fetchStompEndpoint(self, config)).then(function (discovered) {
+      return discovered.stompEndpoint
+    })
   return discoverer.then(function (stompEndpoint) {
     return self.connect_internal(stompEndpoint, config)
   }).catch(function (err) {
@@ -611,7 +626,7 @@ CM.prototype.connect = function (config) {
     var errMsg = 'Unable to connect: ' + err.ex + " : " + err.msg
     var callback = config ? config.connectProgressCallback : null
     if (callback && typeof callback === 'function')
-      callback({errMsg: errMsg, err: err})
+      callback({ errMsg: errMsg, err: err })
     return retryConnect(self, config, errMsg)
   })
 }
@@ -619,7 +634,7 @@ CM.prototype.connect = function (config) {
 CM.prototype.connect_internal = function (stompEndpoint, config) {
   var self = this
   var deferred = Q.defer()
-  var options = {debug: false, heartbeat: false, protocols: Stomp.VERSIONS.supportedProtocols()}
+  var options = { debug: false, heartbeat: false, protocols: Stomp.VERSIONS.supportedProtocols() }
   if ((/^wss?:\/\//).test(stompEndpoint)) {
     if (isNode) {
       self.log("[STOMP] Opening websocket (node):", stompEndpoint)
@@ -740,7 +755,7 @@ CM.prototype.hintDevicePaused = function () {
   disableKeepAliveFunc(this)
   this.paused = true
   if (this.connected)
-    this.sessionSetParams({paused: true})
+    this.sessionSetParams({ paused: true })
   return Q()
 }
 
@@ -793,7 +808,7 @@ CM.prototype.subscribeToTickersHistory = function (period, currency, callback) {
 //
 
 CM.prototype.getPaymentAddressForAccount = function (accountIdOrAlias, param) {
-  var opts = {name: accountIdOrAlias}
+  var opts = { name: accountIdOrAlias }
   if (param) {
     if (param.memo)
       opts.data = param.memo
@@ -807,7 +822,7 @@ CM.prototype.getPaymentAddressForAccount = function (accountIdOrAlias, param) {
 }
 
 CM.prototype.accountGetPublicInfo = function (params) {
-  return this.rpc(C.GET_ACCOUNT_PUBLIC_INFO, {name: params.name, code: params.code}).then(function (res) {
+  return this.rpc(C.GET_ACCOUNT_PUBLIC_INFO, { name: params.name, code: params.code }).then(function (res) {
     //this.log("[CM] accountGetPublicInfo: " + JSON.stringify(res))
     return res.account
   })
@@ -870,7 +885,7 @@ CM.prototype.extractPubKeyFromOutputScript = function (script) {
 }
 
 CM.prototype.pushTx = function (hex) {
-  return this.rpc(C.UTILS_PUSH_TX, {hex: hex})
+  return this.rpc(C.UTILS_PUSH_TX, { hex: hex })
 }
 
 CM.prototype.getFeeInfo = function () {
@@ -886,7 +901,7 @@ CM.prototype.logException = function (account, data, deviceId, agent) {
     pubId: account ? account.pubId : null,
     data: data,
     deviceId: deviceId,
-    ua: typeof agent === "object" ? agent : {application: agent}
+    ua: typeof agent === "object" ? agent : { application: agent }
   })
 }
 
@@ -895,7 +910,7 @@ CM.prototype.logData = function (account, data, deviceId, agent) {
     pubId: account.pubId,
     data: data,
     deviceId: deviceId,
-    ua: typeof agent === "object" ? agent : {application: agent}
+    ua: typeof agent === "object" ? agent : { application: agent }
   })
 }
 
@@ -909,7 +924,7 @@ CM.prototype.deviceSetPassword = function (deviceName, pin) {
   }).then(function (res) {
     // The result is base64 encoded
     self.log("[CM] setDeviceName:", res)
-    return {deviceId: res.info}
+    return { deviceId: res.info }
   })
 }
 
@@ -1022,7 +1037,7 @@ CM.prototype.walletOpen = function (seed, params) {
       var wallet = res.wallet
       self.log("[CM] walletOpen pubKey:" + wallet.pubKey + " #accounts: " + Object.keys(wallet.accounts).length)
       walletOpen(self, hd, wallet)
-      self.lastOpenParams = {seed: seed, sessionName: params.sessionName, deviceId: params.deviceId}
+      self.lastOpenParams = { seed: seed, sessionName: params.sessionName, deviceId: params.deviceId }
       return wallet
     })
   })
@@ -1039,7 +1054,7 @@ CM.prototype.walletRegister = function (seed, params) {
     loginKey = self.deriveKeyFromPath(hd, self.getLoginPath())
     //self.log('REGISTER hd: ', hd, ' loginKey: ', loginKey)
   } catch (error) {
-    var ex = {ex: "clientAssertFailure", msg: error.message}
+    var ex = { ex: "clientAssertFailure", msg: error.message }
     self.log(ex)
     return Q.reject(ex)
   }
@@ -1053,7 +1068,7 @@ CM.prototype.walletRegister = function (seed, params) {
   }).then(function (res) {
     self.log("[CM] walletRegister: ", res)
     walletOpen(self, hd, res.wallet)
-    self.lastOpenParams = {seed: seed, sessionName: params.sessionName, deviceId: params.deviceId}
+    self.lastOpenParams = { seed: seed, sessionName: params.sessionName, deviceId: params.deviceId }
     return res.wallet
   })
 }
@@ -1074,7 +1089,7 @@ CM.prototype.walletGetNumSessions = function () {
 }
 
 CM.prototype.walletGetNotifications = function (fromDate, pagingInfo) {
-  var pars = addPagingInfo({fromDate: fromDate}, pagingInfo)
+  var pars = addPagingInfo({ fromDate: fromDate }, pagingInfo)
   return this.simpleRpcSlice(C.WALLET_GET_NOTIFICATIONS, pars)
 }
 
@@ -1096,30 +1111,30 @@ CM.prototype.getFreeAccountNum = function () {
 }
 
 CM.prototype.addPushTokenGoogle = function (token) {
-  return this.rpc(C.WALLET_PUSH_REGISTER_GOOGLE, {data: token})
+  return this.rpc(C.WALLET_PUSH_REGISTER_GOOGLE, { data: token })
 }
 
 CM.prototype.aliasGetInfo = function (account) {
-  return this.rpc(C.ACCOUNT_ALIAS_INFO, {pubId: account.pubId})
+  return this.rpc(C.ACCOUNT_ALIAS_INFO, { pubId: account.pubId })
 }
 
 CM.prototype.aliasIsAvailable = function (alias) {
-  return this.rpc(C.ACCOUNT_ALIAS_AVAILABLE, {name: alias})
+  return this.rpc(C.ACCOUNT_ALIAS_AVAILABLE, { name: alias })
 }
 
 CM.prototype.aliasDefine = function (account, alias) {
-  return this.rpc(C.ACCOUNT_ALIAS_DEFINE, {pubId: account.pubId, name: alias})
+  return this.rpc(C.ACCOUNT_ALIAS_DEFINE, { pubId: account.pubId, name: alias })
 }
 
 CM.prototype.walletMetaSet = function (name, value) {
-  return this.rpc(C.WALLET_META_SET, {name: name, meta: value})
+  return this.rpc(C.WALLET_META_SET, { name: name, meta: value })
 }
 
 CM.prototype.walletMetaGet = function (param) {
   if (Array.isArray(param))
-    return this.rpc(C.WALLET_META_GET, {names: param})
+    return this.rpc(C.WALLET_META_GET, { names: param })
   else
-    return this.rpc(C.WALLET_META_GET, {name: param}).then(function (res) {
+    return this.rpc(C.WALLET_META_GET, { name: param }).then(function (res) {
       return res.meta
     })
 }
@@ -1130,7 +1145,7 @@ CM.prototype.walletMetasGet = function (pagingInfo) {
 }
 
 CM.prototype.walletMetaDelete = function (name) {
-  return this.rpc(C.WALLET_META_DELETE, {name: name})
+  return this.rpc(C.WALLET_META_DELETE, { name: name })
 }
 
 //
@@ -1218,7 +1233,7 @@ CM.prototype.accountUpdate = function (account, options) {
 
 CM.prototype.accountDelete = function (account) {
   var self = this
-  return this.rpc(C.ACCOUNT_DELETE, {pubId: account.pubId}).then(function (res) {
+  return this.rpc(C.ACCOUNT_DELETE, { pubId: account.pubId }).then(function (res) {
     delete self.walletData.accounts[account.pubId]
     delete self.walletData.balances[account.pubId]
     delete self.walletData.infos[account.pubId]
@@ -1227,7 +1242,7 @@ CM.prototype.accountDelete = function (account) {
 }
 
 CM.prototype.joinCodeGetInfo = function (code) {
-  return this.rpc(C.ACCOUNT_GET_JOIN_CODE_INFO, {code: code})
+  return this.rpc(C.ACCOUNT_GET_JOIN_CODE_INFO, { code: code })
 }
 
 CM.prototype.getLocktimeDays = function (account) {
@@ -1292,14 +1307,14 @@ CM.prototype.addressRelease = function (account, address) {
 }
 
 CM.prototype.addressGet = function (account, address, optionsAndPaging) {
-  var pars = addPagingInfo({pubId: account.pubId, address: address}, optionsAndPaging)
+  var pars = addPagingInfo({ pubId: account.pubId, address: address }, optionsAndPaging)
   if (optionsAndPaging && optionsAndPaging.includeTxInfos)
     pars.includeTxInfos = optionsAndPaging.includeTxInfos
   return this.rpc(C.ACCOUNT_ADDRESS_GET, pars)
 }
 
 CM.prototype.addressesGet = function (account, optionsAndPaging) {
-  var pars = addPagingInfo({pubId: account.pubId}, optionsAndPaging)
+  var pars = addPagingInfo({ pubId: account.pubId }, optionsAndPaging)
   if (optionsAndPaging && optionsAndPaging.onlyActives)
     pars.onlyActives = optionsAndPaging.onlyActives
   return this.simpleRpcSlice(C.ACCOUNT_ADDRESSES_GET, pars)
@@ -1317,7 +1332,7 @@ CM.prototype.addLegacyAddress = function (account, keyPair, params) {
 }
 
 CM.prototype.accountGetNotifications = function (account, fromDate, pagingInfo) {
-  var pars = addPagingInfo({pubId: account.pubId, fromDate: fromDate}, pagingInfo)
+  var pars = addPagingInfo({ pubId: account.pubId, fromDate: fromDate }, pagingInfo)
   return this.simpleRpcSlice(C.ACCOUNT_GET_NOTIFICATIONS, pars)
 }
 
@@ -1353,7 +1368,7 @@ CM.prototype.txInfoSet = function (id, labels, meta) {
 }
 
 CM.prototype.getAllLabels = function (account) {
-  return this.rpc(C.ACCOUNT_GET_ALL_LABELS, {pubId: account ? account.pubId : null})
+  return this.rpc(C.ACCOUNT_GET_ALL_LABELS, { pubId: account ? account.pubId : null })
 }
 
 CM.prototype.ptxPrepare = function (account, recipients, options) {
@@ -1385,21 +1400,21 @@ CM.prototype.ptxPrepare = function (account, recipients, options) {
 CM.prototype.ptxFeeBump = function (id, options) {
   if (!options || !options.feeMultiplier)
     throwBadParamEx("options.feeMultiplier", "Missing feeMultiplier")
-  var ptxOptions = {feeMultiplier: options.feeMultiplier}
-  var params = {data: id, ptxOptions: ptxOptions}
+  var ptxOptions = { feeMultiplier: options.feeMultiplier }
+  var params = { data: id, ptxOptions: ptxOptions }
   return this.rpc(C.ACCOUNT_PTX_FEE_BUMP, params)
 }
 
 CM.prototype.ptxGetById = function (id) {
-  return this.rpc(C.ACCOUNT_PTX_GET, {data: id})
+  return this.rpc(C.ACCOUNT_PTX_GET, { data: id })
 }
 
 CM.prototype.ptxGetByHash = function (hash) {
-  return this.rpc(C.ACCOUNT_PTX_GET, {hash: hash})
+  return this.rpc(C.ACCOUNT_PTX_GET, { hash: hash })
 }
 
 CM.prototype.ptxCancel = function (ptx) {
-  return this.rpc(C.ACCOUNT_PTX_CANCEL, {data: ptx.id})
+  return this.rpc(C.ACCOUNT_PTX_CANCEL, { data: ptx.id })
 }
 
 CM.prototype.ptxSignFields = function (account, ptx) {
@@ -1407,10 +1422,10 @@ CM.prototype.ptxSignFields = function (account, ptx) {
   var node = this.deriveHdAccount(account.num, num1, num2)
   var sig = this.signMessageWithKP(node.keyPair, ptx.rawTx)
   //return { keyPath: [num1, num2], base64Sig: sig.toString('base64')}
-//    var verified = self.verifyMessage(node.keyPair.getAddress(), sig, msg)
-//    this.log("our xpub: : " + ptx.accountPubId + " path: " + keyPath[0] + " " + keyPath[1])
-//    this.log("address: " + node.keyPair.getAddress() + " msg: " + msg + " SIG: " + sig.toString('base64') + " VERIFY: " + verified)
-//    var keyMessage = {keyPath: keyPath, ptxSig: sig.toString('base64'), type: 'fullAES'}
+  //    var verified = self.verifyMessage(node.keyPair.getAddress(), sig, msg)
+  //    this.log("our xpub: : " + ptx.accountPubId + " path: " + keyPath[0] + " " + keyPath[1])
+  //    this.log("address: " + node.keyPair.getAddress() + " msg: " + msg + " SIG: " + sig.toString('base64') + " VERIFY: " + verified)
+  //    var keyMessage = {keyPath: keyPath, ptxSig: sig.toString('base64'), type: 'fullAES'}
   return this.rpc(C.ACCOUNT_PTX_SIGN_FIELDS, {
     data: ptx.id,
     num1: num1,
@@ -1476,6 +1491,7 @@ CM.prototype.signaturesPrepare = function (params) {
   // this.log("[CM signaturesPrepare] txId: " + ptx.id)
   var self = this
   var hd = params.hd || this.hdWallet
+  var coin = params.coin
   var accountNum = params.accountNum
   var progressCallback = params.progressCallback
   var tx = this.decodeTxFromBuffer(new Buffer(params.rawTx, 'hex'))
@@ -1495,21 +1511,16 @@ CM.prototype.signaturesPrepare = function (params) {
     else
       redeemScript = Bitcoin.address.toOutputScript(key.getAddress(), network) // o inputInfo.script
     //self.log("aa.script " + accountAddress.redeemScript)
-    var hashForSignature
-    if (inputInfo.coin.indexOf(C.COIN_PROD_BCH) >= 0)
-      hashForSignature = tx.hashForWitnessV0(i, redeemScript, inputInfo.amount, Bitcoin.Transaction.SIGHASH_ALL + Bitcoin.Transaction.SIGHASH_BITCOINCASHBIP143)
-    else
-      hashForSignature = tx.hashForSignature(i, redeemScript, Bitcoin.Transaction.SIGHASH_ALL)
+    var hashForSignature = self.hashForSignature(coin, tx, i, redeemScript, inputInfo.amount, Bitcoin.Transaction.SIGHASH_ALL)
     var signature = key.sign(hashForSignature)
     //var sigHex = signature.toDER().toString('hex') // signature.toScriptSignature(Bitcoin.Transaction.SIGHASH_ALL)
-    //signatures.push(sigHex)
     //self.log("[signed input #" + i + "] redeemScript: " + redeemScript.buffer.toString('hex') +
     //        " hashForSignature: " + hashForSignature.toString('hex')) // + " sig: " + sig.toString('hex'))
-    signatures.push({key: key, sig: signature})
+    signatures.push({ key: key, sig: signature })
   }
   var deferred = Q.defer()
   var f = function (i) {
-    var progressInfo = {currStep: i, totalSteps: tx.ins.length}
+    var progressInfo = { currStep: i, totalSteps: tx.ins.length }
     deferred.notify(progressInfo)
     var promise = null
     if (progressCallback)
@@ -1653,7 +1664,7 @@ CM.prototype.analyzeTx = function (state, options) {
     return null
   if (options && options.forceValidationError) {
     // For regression testing
-    return {validated: false, error: options.forceValidationError}
+    return { validated: false, error: options.forceValidationError }
   }
   var account = state.account
   var recipients = state.recipients || []
@@ -1670,16 +1681,6 @@ CM.prototype.analyzeTx = function (state, options) {
   var i, j
   //this.log("ANALYZE", ptx)
 
-  // TODO: Per conoscere gli amount degli input dobbiamo usare un servizio come chain.so o similare
-//  if (this.externalTxValidator && !this.isRegTest()) {
-//    var provider = BlockChainApi.getProvider(this.externalTxValidator)
-//    if (provider) {
-//      provider.api.getTxOutputs(tx.ins).then(function (res) {
-//                ...
-//      })
-//    }
-//  }
-
   // TODO: This code must be updated when the transaction contains unknown inputs, like in CoinJoin
   for (i = 0; i < tx.ins.length; i++) {
     var txInput = tx.ins[i]
@@ -1688,10 +1689,11 @@ CM.prototype.analyzeTx = function (state, options) {
       var preparedInput = inputs[j]
       var prepInputHash = new Buffer(preparedInput.tx, 'hex').reverse()
       if (txInput.hash.equals(prepInputHash) && txInput.index === preparedInput.n) {
-        // We have to trust the server if we don't use an external service (leaking private infos)
+        // If we do not use Bitcoin Cash or segwit txs we have to trust the server
+        // We could use an external service to know input values but leaking private infos
         amountInOur += preparedInput.amount
       } else {
-        // The amount is unknown: we need segwit or external block explorer info
+        // The amount is unknown
         //amountInOther += txInput.amount
       }
     }
@@ -1700,17 +1702,23 @@ CM.prototype.analyzeTx = function (state, options) {
   // Calc amount for defined recipients, for the change, and to unknown addresses
 
   // If recipients are Melis accounts we need to trust the server
-  for (j = 0; j < recipients.length; j++)
+  for (j = 0; j < recipients.length; j++) {
     if (recipients[j].pubId)
       recipients[j].validated = true
+    else
+      recipients[j].binaddr = this.coinAddressToBytes(account.coin, recipients[j].address)
+  }
 
   // Mark our recipients to verify that none is left out
   for (i = 0; i < tx.outs.length; i++) {
-    var output = tx.outs[i]
-    var toAddr = this.decodeAddressFromScript(output.script)
+    const output = tx.outs[i]
+    const toAddr = this.decodeAddressFromScript(output.script)
+    const toAddrBytes = this.coinAddressToBytes(account.coin, toAddr)
     var isChange = false
     for (j = 0; j < changes.length; j++) {
-      if (toAddr === changes[j].aa.address) {
+      const changeBytes = this.coinAddressToBytes(account.coin, changes[j].aa.address)
+      //if (toAddr === changes[j].aa.address) {
+      if (toAddrBytes.equals(changeBytes)) {
         amountToChange += output.value
         isChange = true
         break
@@ -1723,7 +1731,8 @@ CM.prototype.analyzeTx = function (state, options) {
         var recipient = recipients[j]
         if (recipient.pubId)
           continue
-        if (toAddr === recipient.address) {
+        //if (toAddr === recipient.address) {
+        if (toAddrBytes.equals(recipient.binaddr)) {
           if (recipient.isRemainder || output.value === recipient.amount) {
             amountToRecipients += output.value
             isRecipient = true
@@ -1753,13 +1762,13 @@ CM.prototype.analyzeTx = function (state, options) {
     else if (fees !== ptx.fees)
       error = "Calculated fees does not match server info"
     else if (amountToRecipients + amountToUnknown > 0 && fees > amountToRecipients + amountToUnknown)
-//  else if (fees > amountToChange &&
-//          (fees > (amountToRecipients + amountToUnknown) || (amountToRecipients === 0 && amountToUnknown === 0)))
+      //  else if (fees > amountToChange &&
+      //          (fees > (amountToRecipients + amountToUnknown) || (amountToRecipients === 0 && amountToUnknown === 0)))
       error = "Fees (" + fees + ") would be greater than total outputs of transaction (" + amountToRecipients + "/" + amountToUnknown + "/" + amountToChange + ")"
     else if (!this.areAddressesOfAccount(account, changes))
       error = "Change address not validated"
-//    else if (amountToUnknown !== 0)
-//      error = "Destination address not validated"
+  //    else if (amountToUnknown !== 0)
+  //      error = "Destination address not validated"
   this.log("[ANALYZE] amountInOur: " + amountInOur + " amountInOther: " + amountInOther + " amountToRecipients: " + amountToRecipients + " amountToChange: " + amountToChange + " amountToUnknown: " + amountToUnknown)
   this.log("[ANALYZE] fees: " + fees + " maxAcceptableFees: " + maximumAcceptableFee + " ptx.fees: " + ptx.fees + " extimatedTxSize: " + extimatedTxSize + " error: " + error + " feeData: ", this.fees)
   return {
@@ -1779,7 +1788,7 @@ CM.prototype.preparePayAllToAddress = function (account, address, options) {
   if (!options)
     options = {}
   options.selectAllUnspents = true
-  var recipients = [{address: address, isRemainder: true, amount: 0}]
+  var recipients = [{ address: address, isRemainder: true, amount: 0 }]
   return this.payPrepare(account, recipients, options)
 }
 
@@ -1789,15 +1798,18 @@ CM.prototype.payPrepare = function (account, recipients, options) {
     recipients = []
   if (recipients.length === 0 && (!options || !options.unspents))
     return failPromiseWithBadParam("recipients", "Missing recipients or inputs to rotate")
-  recipients.forEach(function (recipient) {
-    if (!recipient.address || !self.validateAddress(recipient.address))
-      return failPromiseWithBadParam("address", "Invalid address: " + recipient.address)
+  for (var i = 0; i < recipients.length; i++) {
+    const recipient = recipients[i]
+    if (recipient.address && !self.isValidAddress(account.coin, recipient.address))
+      return failPromiseWithEx(buildInvalidAddressEx(recipient.address, "Invalid address: " + recipient.address))
+    if (!recipient.address && !recipient.pubId)
+      return failPromiseWithBadParam("recipient", "Missing address or pubId in recipient")
     var v = parseInt(recipient.amount)
     if (!v || v <= 0)
       return failPromiseWithBadParam("amount", "Invalid amount: " + v)
     recipient.amount = v
-  })
-  var state = {account: account, recipients: recipients}
+  }
+  var state = { account: account, recipients: recipients }
   return this.ensureAccountInfo(account).then(function (account) {
     state.account = account
     return self.ptxPrepare(account, recipients, options)
@@ -1841,6 +1853,7 @@ CM.prototype.payConfirm = function (state, tfa) {
   var self = this
   return this.ptxVerifyFieldsSignature(state.account, state.ptx).then(function () {
     return self.signaturesPrepare({
+      coin: state.account.coin,
       accountNum: state.account.num,
       progressCallback: state.progressCallback,
       rawTx: state.ptx.rawTx,
@@ -1856,7 +1869,7 @@ CM.prototype.payConfirm = function (state, tfa) {
 CM.prototype.payAllToAddress = function (account, address, options) {
   options = options || {}
   options.selectAllUnspents = true
-  var recipients = [{address: address, isRemainder: true, amount: 0}]
+  var recipients = [{ address: address, isRemainder: true, amount: 0 }]
   return this.payRecipients(account, recipients, options)
 }
 
@@ -1871,7 +1884,7 @@ CM.prototype.payRecipients = function (account, recipients, options) {
         return state
       })
     } else {
-      var ex = {ex: "clientValidationFailure", msg: "Self validation not passed", error: state.summary.error}
+      var ex = { ex: "clientValidationFailure", msg: "Self validation not passed", error: state.summary.error }
       self.log(ex)
       return Q.reject(ex)
     }
@@ -1879,12 +1892,12 @@ CM.prototype.payRecipients = function (account, recipients, options) {
 }
 
 CM.prototype.getExpiringUnspents = function (account, pagingInfo) {
-  var pars = addPagingInfo({pubId: account.pubId}, pagingInfo)
+  var pars = addPagingInfo({ pubId: account.pubId }, pagingInfo)
   return this.simpleRpcSlice(C.ACCOUNT_GET_EXPIRING_UNSPENTS, pars)
 }
 
 CM.prototype.getUnspents = function (account, pagingInfo) {
-  var pars = addPagingInfo({pubId: account.pubId}, pagingInfo)
+  var pars = addPagingInfo({ pubId: account.pubId }, pagingInfo)
   return this.simpleRpcSlice(C.ACCOUNT_GET_UNSPENTS, pars)
 }
 
@@ -1950,7 +1963,7 @@ CM.prototype.tfaEnrollStart = function (params, tfa) {
 }
 
 CM.prototype.tfaEnrollFinish = function (tfa) {
-  return this.rpc(C.TFA_ENROLL_FINISH, {tfa: tfa}).then(function (res) {
+  return this.rpc(C.TFA_ENROLL_FINISH, { tfa: tfa }).then(function (res) {
     //console.log("tfaEnrollFinish: " + JSON.stringify(res))
     return res.tfaRes
   })
@@ -2001,14 +2014,14 @@ CM.prototype.tfaAuthStart = function (params) {
 }
 
 CM.prototype.tfaAuthValidate = function (tfa) {
-  return this.rpc(C.TFA_AUTH_VALIDATE, {tfa: tfa}).then(function (res) {
+  return this.rpc(C.TFA_AUTH_VALIDATE, { tfa: tfa }).then(function (res) {
     //console.log("tfaAuthValidate: " + JSON.stringify(res))
     return res.tfaRes
   })
 }
 
 CM.prototype.tfaGetAccountConfig = function (account) {
-  return this.rpc(C.TFA_GET_ACCOUNT_CONFIG, {pubId: account.pubId}).then(function (res) {
+  return this.rpc(C.TFA_GET_ACCOUNT_CONFIG, { pubId: account.pubId }).then(function (res) {
     //console.log("res: " + JSON.stringify(res))
     return res.tfaConfig
   })
@@ -2055,12 +2068,12 @@ CM.prototype.abUpdate = function (entry) {
 
 CM.prototype.abDelete = function (entry) {
   this.log("[CM ab delete]", entry)
-  return this.rpc(C.AB_DELETE, {id: entry.id})
+  return this.rpc(C.AB_DELETE, { id: entry.id })
 }
 
 CM.prototype.abGet = function (fromDate, pagingInfo) {
   //console.log("[CM ab get] since: " + fromDate)
-  var pars = addPagingInfo({fromDate: fromDate}, pagingInfo)
+  var pars = addPagingInfo({ fromDate: fromDate }, pagingInfo)
   return this.simpleRpcSlice(C.AB_GET, pars)
 }
 
@@ -2087,17 +2100,17 @@ CM.prototype.msgSendToPtx = function (account, ptx, payload, type) {
 }
 
 CM.prototype.msgGetAllToWallet = function (fromDate, pagingInfo) {
-  var pars = addPagingInfo({fromDate: fromDate}, pagingInfo)
+  var pars = addPagingInfo({ fromDate: fromDate }, pagingInfo)
   return this.simpleRpcSlice(C.MSG_GET_ALL_TO_WALLET, pars)
 }
 
 CM.prototype.msgGetAllToPtx = function (ptx, fromDate, pagingInfo) {
-  var pars = addPagingInfo({toPtx: ptx.id, fromDate: fromDate}, pagingInfo)
+  var pars = addPagingInfo({ toPtx: ptx.id, fromDate: fromDate }, pagingInfo)
   return this.simpleRpcSlice(C.MSG_GET_ALL_TO_PTX, pars)
 }
 
 CM.prototype.msgGetAllToPtxs = function (fromDate, pagingInfo) {
-  var pars = addPagingInfo({fromDate: fromDate}, pagingInfo)
+  var pars = addPagingInfo({ fromDate: fromDate }, pagingInfo)
   return this.simpleRpcSlice(C.MSG_GET_ALL_TO_PTXS, pars)
 }
 
@@ -2106,7 +2119,7 @@ CM.prototype.msgGetAllToPtxs = function (fromDate, pagingInfo) {
 //
 
 CM.prototype.sessionSetParams = function (params, tfa) {
-  var par = {tfa: tfa}
+  var par = { tfa: tfa }
   var validProps = ['locale', 'currency', 'paused', 'usePinAsTfa']
   validProps.forEach(function (p) {
     if (params[p] !== undefined)
@@ -2169,8 +2182,8 @@ CM.prototype.getNetworkFeesBitgo = function () {
   }).then(function (val) {
     if (!val.feePerKb)
       return null
-//    if (!val.feeByBlockTarget || !val.feeByBlockTarget[2] || !val.feeByBlockTarget[4] || !val.feeByBlockTarget[10])
-//      return null
+    //    if (!val.feeByBlockTarget || !val.feeByBlockTarget[2] || !val.feeByBlockTarget[4] || !val.feeByBlockTarget[10])
+    //      return null
     return {
       provider: "bitgo.com",
       fastestFee: Math.round(val.feePerKb / 1024),
@@ -2228,7 +2241,7 @@ CM.prototype.verifyInstantViaRest = function (account, address, hash, n) {
   var node = this.deriveHdAccount(account.num, address.chain, address.hdindex)
   var data = this.prepareAddressSignature(node.keyPair, C.MSG_PREFIX_INSTANT_VERIFY)
   return fetch(this.peekRestPrefix() + "/verifyInstantTx?txHash=" + hash + "&outputNum=" + n + "&sig=" + encodeURIComponent(data.base64Sig), {
-    headers: {"user-agent": C.MELIS_USER_AGENT}
+    headers: { "user-agent": C.MELIS_USER_AGENT }
   }).then(function (res) {
     return res.json()
   })
@@ -2290,17 +2303,6 @@ CM.prototype.rebuildStateFromPtx = function (account, ptx) {
   }
 }
 
-CM.prototype.validateAddress = function (addr) {
-  if (!addr)
-    return false
-  try {
-    Bitcoin.address.fromBase58Check(addr)
-    return true
-  } catch (ex) {
-    return false
-  }
-}
-
 CM.prototype.peekConfig = function () {
   return this.cmConfiguration
 }
@@ -2357,9 +2359,9 @@ CM.prototype.deviceIdHash = function (deviceId) {
 
 CM.prototype.countNumAccounts = function () {
   return Object.keys(this.peekAccounts()).length
-//  return  this.peekAccounts().reduce(function (prevVal, currVal, i, arr) {
-//    return prevVal + (arr[i] ? 1 : 0)
-//  }, 0)
+  //  return  this.peekAccounts().reduce(function (prevVal, currVal, i, arr) {
+  //    return prevVal + (arr[i] ? 1 : 0)
+  //  }, 0)
 }
 
 //
@@ -2404,7 +2406,7 @@ CM.prototype.recoveryPrepareInputSig = function (index, accountInfo, unspent, ac
         throw new MelisError('CmBadParamException', "Unable to find pubKey in account recovery data: " + sigData.pubKey)
     }
   })
-  console.log("#mandatorySigs: " + mandatorySigs.length + " #otherSigs: " + otherSigs.length + " mandatoryServer: " + accountInfo.serverMandatory)
+  self.log("#mandatorySigs: " + mandatorySigs.length + " #otherSigs: " + otherSigs.length + " mandatoryServer: " + accountInfo.serverMandatory)
   if (mandatorySigs.length !== mandatoryPubKeys.length)
     throw new MelisError('CmBadParamException', 'Wrong mandatory signatures -- found: ' + mandatorySigs.length + " needed: " + mandatoryPubKeys.length)
   if (otherSigs.length !== (accountInfo.minSignatures + (accountInfo.serverMandatory ? 1 : 0) - mandatorySigs.length))
@@ -2452,12 +2454,13 @@ CM.prototype.recoveryPrepareTransaction = function (accountInfo, tx, unspents, s
     })
     if (!cosigner)
       throw new MelisError('CmBadParamException', "Unable to find cosigner for seed: " + seed)
-    accountsData.push({seed: seed, accountNum: cosigner.accountNum})
+    accountsData.push({ seed: seed, accountNum: cosigner.accountNum })
   })
 
   var f = function (i) {
     var data = accountsData[i]
     return self.signaturesPrepare({
+      coin: data.coin,
       hd: Bitcoin.HDNode.fromSeedHex(data.seed, network),
       accountNum: data.accountNum,
       rawTx: hexTx,
@@ -2483,7 +2486,7 @@ CM.prototype.recoveryPrepareTransaction = function (accountInfo, tx, unspents, s
       if (accountInfo.serverSignature && accountInfo.serverMandatory) {
         var serverPubKey = new Buffer(serverSignaturesData[i].pubKey, 'base64').toString('hex')
         var serverSig = Bitcoin.ECSignature.fromDER(new Buffer(serverSignaturesData[i].sig, 'base64'))
-        var serverSigData = {pubKey: serverPubKey, sig: serverSig, hash: Bitcoin.Transaction.SIGHASH_NONE}
+        var serverSigData = { pubKey: serverPubKey, sig: serverSig, hash: Bitcoin.Transaction.SIGHASH_NONE }
         arr.push(serverSigData)
       }
       signatures.forEach(function (s) {

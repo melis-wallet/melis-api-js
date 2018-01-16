@@ -17,13 +17,14 @@
     "url": "https://github.com/melis-wallet/melis-api-js.git"
   },
   "dependencies": {
-    "bitcoinjs-lib": "^3.3.0",
+    "bitcoinjs-lib": "^3.3.2",
     "bitcoinjs-message": "^2.0.0",
+    "cashaddrjs": "^0.2.7",
     "detect-node": "^2.0.3",
-    "ecurve": "^1.0.5",
+    "ecurve": "^1.0.6",
     "isomorphic-fetch": "^2.2.1",
     "q": "1.x",
-    "randombytes": "^2.0.5",
+    "randombytes": "^2.0.6",
     "sjcl-all": "^1.0.1",
     "sockjs-client": "1.1.x",
     "webstomp-client": "^1.2.0",
