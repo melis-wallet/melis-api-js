@@ -120,7 +120,7 @@ function toOutputScriptCash(address) {
 }
 
 function toOutputScriptLegacy(address) {
-  return Bitcoin.address.toOutputScript(regtestAddress, this.network)
+  return Bitcoin.address.toOutputScript(address, this.network)
 }
 
 //

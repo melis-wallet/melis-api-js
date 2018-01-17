@@ -1809,7 +1809,7 @@ CM.prototype.payPrepare = function (account, recipients, options) {
     if (!recipient.address && !recipient.pubId)
       return failPromiseWithBadParam("recipient", "Missing address or pubId in recipient")
     var v = parseInt(recipient.amount)
-    if (!v || v <= 0)
+    if (v === undefined || v === null || v < 0)
       return failPromiseWithBadParam("amount", "Invalid amount: " + v)
     recipient.amount = v
   }
