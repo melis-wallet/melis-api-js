@@ -346,6 +346,10 @@ CM.prototype.isValidAddress = function (coin, address) {
   return getDriver(coin).isValidAddress(address)
 }
 
+CM.prototype.toOutputScript = function (coin, address) {
+  return getDriver(coin).toOutputScript(address)
+}
+
 CM.prototype.decodeNetworkName = function (networkName) {
   return networkName === "main" ? Bitcoin.networks.bitcoin : Bitcoin.networks.testnet
 }
@@ -1509,7 +1513,7 @@ CM.prototype.signaturesPrepare = function (params) {
     if (accountAddress.redeemScript)
       redeemScript = new Buffer(accountAddress.redeemScript, "hex")
     else
-      redeemScript = Bitcoin.address.toOutputScript(key.getAddress(), network) // o inputInfo.script
+      redeemScript = self.toOutputScript(coin, key.getAddress()) // o inputInfo.script
     //self.log("aa.script " + accountAddress.redeemScript)
     var hashForSignature = self.hashForSignature(coin, tx, i, redeemScript, inputInfo.amount, Bitcoin.Transaction.SIGHASH_ALL)
     var signature = key.sign(hashForSignature)
