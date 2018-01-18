@@ -1,4 +1,5 @@
 const Bitcoin = require('bitcoinjs-lib')
+const BitcoinMessage = require('bitcoinjs-message')
 const cashaddr = require('cashaddrjs')
 const C = require("./cm-constants")
 const MelisError = require("./melis-error")
@@ -123,67 +124,84 @@ function toOutputScriptLegacy(address) {
   return Bitcoin.address.toOutputScript(address, this.network)
 }
 
+function wifToEcPair(wif) {
+  return Bitcoin.ECPair.fromWIF(wif, this.network)
+}
+
+function signMessageWithKP(keyPair, message) {
+  var pk = keyPair.d.toBuffer(32)
+  return BitcoinMessage.sign(message, pk, true, this.network.messagePrefix).toString('base64')
+}
+
+function verifyBitcoinMessageSignature(address, signature, message) {
+  return BitcoinMessage.verify(message, address, new Buffer(signature, 'base64'), this.network.messagePrefix)
+}
+
+function decodeAddressFromScript(script) {
+  return Bitcoin.address.fromOutputScript(script, this.network)
+}
+
+function addressFromPubKey(pubKey) {
+  return pubKey.getAddress(this.network)
+}
+
+function extractPubKeyFromOutputScript(script) {
+  var type = Bitcoin.script.classifyOutput(script)
+  if (type === "pubkey") {
+    //return Bitcoin.ECPubKey.fromBuffer(script.chunks[0])
+    var decoded = Bitcoin.script.decompile(script)
+    //this.log("Decoded:"); this.log(decoded)
+    return Bitcoin.ECPair.fromPublicKeyBuffer(decoded[0], this.network)
+  }
+  return null
+}
+
+function prepareAddressSignature(keyPair, prefix) {
+  var address = this.addressFromPubKey(keyPair)
+  var message = prefix + address
+  return {
+    address: address,
+    message: message,
+    base64Sig: this.signMessageWithKP(keyPair, message)
+  }
+}
+
 //
 //
 //
+
+const COMMON_METHODS = {
+  wifToEcPair, signMessageWithKP, verifyBitcoinMessageSignature,
+  decodeAddressFromScript, addressFromPubKey, extractPubKeyFromOutputScript,
+  prepareAddressSignature
+}
 
 const BCH_CONSTS = {
   CASH_BECH32_REGEX, CASH_BECH32_WITHOUT_PREFIX_LOWERCASE, CASH_BECH32_WITHOUT_PREFIX_UPPERCASE
 }
 
-const BTC = {
-  network: Bitcoin.networks.bitcoin,
+const BTC_COMMON = {
   isValidAddress: isValidLegacyAddress,
   hashForSignature: hashForSignatureLegacy,
   getAddressBytes: getAddressBytesFromLegacyAddr,
   toOutputScript: toOutputScriptLegacy
 }
 
-const TBTC = {
-  network: Bitcoin.networks.testnet,
-  isValidAddress: isValidLegacyAddress,
-  hashForSignature: hashForSignatureLegacy,
-  getAddressBytes: getAddressBytesFromLegacyAddr,
-  toOutputScript: toOutputScriptLegacy
-}
-
-const RBTC = {
-  network: Bitcoin.networks.testnet,
-  isValidAddress: isValidLegacyAddress,
-  hashForSignature: hashForSignatureLegacy,
-  getAddressBytes: getAddressBytesFromLegacyAddr,
-  toOutputScript: toOutputScriptLegacy
-}
-
-const BCH = {
+const BCH_COMMON = {
   C: BCH_CONSTS,
-  network: Bitcoin.networks.bitcoin,
-  addressPrefix: PREFIX_MAINNET,
   isValidAddress: isValidBchAddress,
   hashForSignature: hashForSignatureCash,
   getAddressBytes: getAddressBytesFromBchAddress,
   toOutputScript: toOutputScriptCash
 }
 
-const TBCH = {
-  C: BCH_CONSTS,
-  network: Bitcoin.networks.testnet,
-  addressPrefix: PREFIX_TESTNET,
-  isValidAddress: isValidBchAddress,
-  hashForSignature: hashForSignatureCash,
-  getAddressBytes: getAddressBytesFromBchAddress,
-  toOutputScript: toOutputScriptCash
-}
+const BTC = Object.assign({ network: Bitcoin.networks.bitcoin }, BTC_COMMON, COMMON_METHODS)
+const TBTC = Object.assign({ network: Bitcoin.networks.testnet }, BTC_COMMON, COMMON_METHODS)
+const RBTC = Object.assign({ network: Bitcoin.networks.testnet }, BTC_COMMON, COMMON_METHODS)
 
-const RBCH = {
-  C: BCH_CONSTS,
-  network: Bitcoin.networks.testnet,
-  addressPrefix: PREFIX_REGTEST,
-  isValidAddress: isValidBchAddress,
-  hashForSignature: hashForSignatureCash,
-  getAddressBytes: getAddressBytesFromBchAddress,
-  toOutputScript: toOutputScriptCash
-}
+const BCH = Object.assign({ network: Bitcoin.networks.bitcoin, addressPrefix: PREFIX_MAINNET }, BCH_COMMON, COMMON_METHODS)
+const TBCH = Object.assign({ network: Bitcoin.networks.testnet, addressPrefix: PREFIX_TESTNET }, BCH_COMMON, COMMON_METHODS)
+const RBCH = Object.assign({ network: Bitcoin.networks.testnet, addressPrefix: PREFIX_REGTEST }, BCH_COMMON, COMMON_METHODS)
 
 const networks = {
   BTC, TBTC, RBTC,

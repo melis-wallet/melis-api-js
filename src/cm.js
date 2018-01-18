@@ -6,7 +6,6 @@ const Stomp = require('webstomp-client')
 const WebSocketClient = require('ws')
 const SockJS = require('sockjs-client')
 const Bitcoin = require('bitcoinjs-lib')
-const BitcoinMessage = require('bitcoinjs-message')
 const isNode = require('detect-node')
 const randomBytes = require('randombytes')
 const sjcl = require('sjcl-all')
@@ -323,6 +322,10 @@ CM.prototype.isRegTest = function () {
   return this.cmConfiguration.network === C.CHAIN_REGTEST
 }
 
+//
+// Coin dependent functions
+//
+
 CM.prototype.getCoinNetwork = function (coin) {
   return Networks[coin]
 }
@@ -349,6 +352,52 @@ CM.prototype.isValidAddress = function (coin, address) {
 CM.prototype.toOutputScript = function (coin, address) {
   return getDriver(coin).toOutputScript(address)
 }
+
+CM.prototype.wifToEcPair = function (coin, wif) {
+  return getDriver(coin).wifToEcPair(wif)
+}
+
+CM.prototype.signMessageWithKP = function (coin, keyPair, message) {
+  return getDriver(coin).signMessageWithKP(keyPair, message)
+}
+
+CM.prototype.verifyBitcoinMessageSignature = function (coin, address, signature, message) {
+  return getDriver(coin).verifyBitcoinMessageSignature(address, signature, message)
+}
+
+CM.prototype.signMessageWithAA = function (account, aa, message) {
+  if (account.type !== C.TYPE_PLAIN_HD)
+    throw new MelisError('CmBadParamException', 'Only single signature accounts can sign messages')
+  var key = this.deriveHdAccount(account.num, aa.chain, aa.hdindex)
+  return this.signMessageWithKP(account.coin, key.keyPair, message)
+}
+
+CM.prototype.decodeAddressFromScript = function (coin, script) {
+  return getDriver(coin).decodeAddressFromScript(script)
+}
+
+CM.prototype.addressFromPubKey = function (coin, pubKey) {
+  return getDriver(coin).addressFromPubKey(pubKey)
+}
+
+CM.prototype.prepareAddressSignature = function (coin, keyPair, prefix) {
+  return getDriver(coin).prepareAddressSignature(keyPair, prefix)
+}
+
+CM.prototype.extractPubKeyFromOutputScript = function (script) {
+  var type = Bitcoin.script.classifyOutput(script)
+  if (type === "pubkey") {
+    //return Bitcoin.ECPubKey.fromBuffer(script.chunks[0])
+    var decoded = Bitcoin.script.decompile(script)
+    //this.log("Decoded:"); this.log(decoded)
+    return Bitcoin.ECPair.fromPublicKeyBuffer(decoded[0], this.bitcoinNetwork)
+  }
+  return null
+}
+
+//
+//
+//
 
 CM.prototype.decodeNetworkName = function (networkName) {
   return networkName === "main" ? Bitcoin.networks.bitcoin : Bitcoin.networks.testnet
@@ -404,9 +453,10 @@ CM.prototype.parseBIP32Path = function (path, radix) {
 }
 
 CM.prototype.getLoginPath = function () {
-  var product = 31337 // CM
-  var isProdNet = this.bitcoinNetwork.wif === Bitcoin.networks.bitcoin.wif
-  var network = isProdNet ? 0 : 1 // Use another path for I2P/TOR?
+  const product = 31337 // CM
+  //var isProdNet = this.bitcoinNetwork.wif === Bitcoin.networks.bitcoin.wif
+  const isProdNet = !this.cmConfiguration.platform || this.cmConfiguration.platform === "production"
+  const network = isProdNet ? 0 : 1 // Use another path for I2P/TOR?
   return [
     ((0x80000000) | product) >>> 0,
     ((0x80000000) | network) >>> 0
@@ -844,49 +894,49 @@ CM.prototype.decodeTxFromBuffer = function (buf) {
   return Bitcoin.Transaction.fromBuffer(buf)
 }
 
-CM.prototype.createTxBuilderFromTxBuffer = function (buf) {
-  return Bitcoin.TransactionBuilder.fromTransaction(this.decodeTxFromBuffer(buf), this.bitcoinNetwork)
-}
+// Unused
+// CM.prototype.createTxBuilderFromTxBuffer = function (buf) {
+//   return Bitcoin.TransactionBuilder.fromTransaction(this.decodeTxFromBuffer(buf), this.bitcoinNetwork)
+// }
+// CM.prototype.wifToEcPair = function (wif) {
+//   return Bitcoin.ECPair.fromWIF(wif, this.bitcoinNetwork)
+// }
+//
+// CM.prototype.signMessageWithKP = function (keyPair, message) {
+//   var pk = keyPair.d.toBuffer(32)
+//   return BitcoinMessage.sign(message, pk, true, this.bitcoinNetwork.messagePrefix).toString('base64')
+// }
 
-CM.prototype.wifToEcPair = function (wif) {
-  return Bitcoin.ECPair.fromWIF(wif, this.bitcoinNetwork)
-}
+// CM.prototype.signMessageWithAA = function (account, aa, message) {
+//   if (account.type !== C.TYPE_PLAIN_HD)
+//     throw new MelisError('CmBadParamException', 'Only single signature accounts can sign messages')
+//   var key = this.deriveHdAccount(account.num, aa.chain, aa.hdindex)
+//   return this.signMessageWithKP(key.keyPair, message)
+// }
 
-CM.prototype.signMessageWithKP = function (keyPair, message) {
-  var pk = keyPair.d.toBuffer(32)
-  return BitcoinMessage.sign(message, pk, true, this.bitcoinNetwork.messagePrefix).toString('base64')
-}
+// CM.prototype.verifyBitcoinMessageSignature = function (address, signature, message) {
+//   //return Bitcoin.message.verify(address, signature, message, this.bitcoinNetwork)
+//   return BitcoinMessage.verify(message, address, new Buffer(signature, 'base64'), this.bitcoinNetwork.messagePrefix)
+// }
+//
+// CM.prototype.decodeAddressFromScript = function (script) {
+//   return Bitcoin.address.fromOutputScript(script, this.bitcoinNetwork)
+// }
 
-CM.prototype.signMessageWithAA = function (account, aa, message) {
-  if (account.type !== C.TYPE_PLAIN_HD)
-    throw new MelisError('CmBadParamException', 'Only single signature accounts can sign messages')
-  var key = this.deriveHdAccount(account.num, aa.chain, aa.hdindex)
-  return this.signMessageWithKP(key.keyPair, message)
-}
+// CM.prototype.addressFromPubKey = function (pubKey) {
+//   return pubKey.getAddress(this.bitcoinNetwork)
+// }
 
-CM.prototype.verifyBitcoinMessageSignature = function (address, signature, message) {
-  //return Bitcoin.message.verify(address, signature, message, this.bitcoinNetwork)
-  return BitcoinMessage.verify(message, address, new Buffer(signature, 'base64'), this.bitcoinNetwork.messagePrefix)
-}
-
-CM.prototype.decodeAddressFromScript = function (script) {
-  return Bitcoin.address.fromOutputScript(script, this.bitcoinNetwork)
-}
-
-CM.prototype.addressFromPubKey = function (pubKey) {
-  return pubKey.getAddress(this.bitcoinNetwork)
-}
-
-CM.prototype.extractPubKeyFromOutputScript = function (script) {
-  var type = Bitcoin.script.classifyOutput(script)
-  if (type === "pubkey") {
-    //return Bitcoin.ECPubKey.fromBuffer(script.chunks[0])
-    var decoded = Bitcoin.script.decompile(script)
-    //this.log("Decoded:"); this.log(decoded)
-    return Bitcoin.ECPair.fromPublicKeyBuffer(decoded[0], this.bitcoinNetwork)
-  }
-  return null
-}
+// CM.prototype.extractPubKeyFromOutputScript = function (script) {
+//   var type = Bitcoin.script.classifyOutput(script)
+//   if (type === "pubkey") {
+//     //return Bitcoin.ECPubKey.fromBuffer(script.chunks[0])
+//     var decoded = Bitcoin.script.decompile(script)
+//     //this.log("Decoded:"); this.log(decoded)
+//     return Bitcoin.ECPair.fromPublicKeyBuffer(decoded[0], this.bitcoinNetwork)
+//   }
+//   return null
+// }
 
 CM.prototype.pushTx = function (hex) {
   return this.rpc(C.UTILS_PUSH_TX, { hex: hex })
@@ -1325,7 +1375,7 @@ CM.prototype.addressesGet = function (account, optionsAndPaging) {
 }
 
 CM.prototype.addLegacyAddress = function (account, keyPair, params) {
-  var data = this.prepareAddressSignature(keyPair, C.MSG_PREFIX_LEGACY_ADDR)
+  var data = this.prepareAddressSignature(account.coin, keyPair, C.MSG_PREFIX_LEGACY_ADDR)
   return this.rpc(C.WALLET_ADD_LEGACY_ADDRESS, {
     pubId: account.pubId,
     address: data.address,
@@ -1424,7 +1474,7 @@ CM.prototype.ptxCancel = function (ptx) {
 CM.prototype.ptxSignFields = function (account, ptx) {
   var num1 = simpleRandomInt(C.MAX_SUBPATH), num2 = simpleRandomInt(C.MAX_SUBPATH)
   var node = this.deriveHdAccount(account.num, num1, num2)
-  var sig = this.signMessageWithKP(node.keyPair, ptx.rawTx)
+  var sig = this.signMessageWithKP(account.coin, node.keyPair, ptx.rawTx)
   //return { keyPath: [num1, num2], base64Sig: sig.toString('base64')}
   //    var verified = self.verifyMessage(node.keyPair.getAddress(), sig, msg)
   //    this.log("our xpub: : " + ptx.accountPubId + " path: " + keyPath[0] + " " + keyPath[1])
@@ -1470,7 +1520,7 @@ CM.prototype.ptxVerifyFieldsSignature = function (account, ptx) {
     var address = node.keyPair.getAddress()
     var ptxSigVerified = false
     try {
-      ptxSigVerified = self.verifyBitcoinMessageSignature(address, keyMessage.ptxSig, ptx.rawTx)
+      ptxSigVerified = self.verifyBitcoinMessageSignature(account.coin, address, keyMessage.ptxSig, ptx.rawTx)
       self.log("[CM] ptx#" + ptx.id + " address: " + address + " VERIFIED: " + ptxSigVerified)
     } catch (ex) {
       self.log("verifyBitcoinMessageEx: ", ex)
@@ -1716,7 +1766,7 @@ CM.prototype.analyzeTx = function (state, options) {
   // Mark our recipients to verify that none is left out
   for (i = 0; i < tx.outs.length; i++) {
     const output = tx.outs[i]
-    const toAddr = this.decodeAddressFromScript(output.script)
+    const toAddr = this.decodeAddressFromScript(account.coin, output.script)
     const toAddrBytes = this.coinAddressToBytes(account.coin, toAddr)
     var isChange = false
     for (j = 0; j < changes.length; j++) {
@@ -2243,7 +2293,7 @@ CM.prototype.updateNetworkFees = function () {
 
 CM.prototype.verifyInstantViaRest = function (account, address, hash, n) {
   var node = this.deriveHdAccount(account.num, address.chain, address.hdindex)
-  var data = this.prepareAddressSignature(node.keyPair, C.MSG_PREFIX_INSTANT_VERIFY)
+  var data = this.prepareAddressSignature(account.coin, node.keyPair, C.MSG_PREFIX_INSTANT_VERIFY)
   return fetch(this.peekRestPrefix() + "/verifyInstantTx?txHash=" + hash + "&outputNum=" + n + "&sig=" + encodeURIComponent(data.base64Sig), {
     headers: { "user-agent": C.MELIS_USER_AGENT }
   }).then(function (res) {
@@ -2260,16 +2310,6 @@ CM.prototype.calcNextFeeProvider = function () {
     this.nextFeeProvider = simpleRandomInt(this.feeProviders.length)
   this.nextFeeProvider = (this.nextFeeProvider + 1) % this.feeProviders.length
   return this.feeProviders[this.nextFeeProvider]
-}
-
-CM.prototype.prepareAddressSignature = function (keyPair, prefix) {
-  var address = this.addressFromPubKey(keyPair)
-  var message = prefix + address
-  return {
-    address: address,
-    message: message,
-    base64Sig: this.signMessageWithKP(keyPair, message)
-  }
 }
 
 CM.prototype.estimateInputSigSize = function (numAccounts, minSignatures) {
