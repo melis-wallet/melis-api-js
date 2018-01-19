@@ -241,6 +241,14 @@ function calcP2SH(accountInfo, chain, hdIndex) {
   return Bitcoin.address.fromOutputScript(scriptPubKey, this.network)
 }
 
+function hdNodeFromHexSeed(seed) {
+  return Bitcoin.HDNode.fromSeedHex(seed, this.network)
+}
+
+function hdNodeFromBase58(xpub) {
+  return Bitcoin.HDNode.fromBase58(xpub, this.network)
+}
+
 //
 //
 //
@@ -248,7 +256,8 @@ function calcP2SH(accountInfo, chain, hdIndex) {
 const COMMON_METHODS = {
   wifToEcPair, signMessageWithKP, verifyBitcoinMessageSignature,
   decodeAddressFromScript, addressFromPubKey, extractPubKeyFromOutputScript,
-  prepareAddressSignature, derivePubKeys, calcP2SH
+  prepareAddressSignature, derivePubKeys, calcP2SH,
+  hdNodeFromHexSeed, hdNodeFromBase58
 }
 
 const BCH_CONSTS = {

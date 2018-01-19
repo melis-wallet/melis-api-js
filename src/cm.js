@@ -61,7 +61,7 @@ function updateServerConfig(target, config) {
     target.log("Server message status: " + config.message)
   target.cmConfiguration = config
   target.lastBlocks = config.topBlocks
-  target.bitcoinNetwork = target.decodeNetworkName(target.cmConfiguration.network)
+  target.platform = config.platform
   if (config.feeInfo && !target.fees.lastUpdated)
     target.fees = {
       detail: config.feeInfo,
@@ -155,7 +155,6 @@ function initializePrivateFields(target) {
   target.lastBlocks = {}
   target.lastOpenParams = null
   target.cmConfiguration = null // Got from server at connect
-  target.bitcoinNetwork = Bitcoin.networks.testnet // Overridden from server at connect
   target.connected = false
   target.connecting = false
   target.paused = false
@@ -398,6 +397,14 @@ CM.prototype.derivePubKeys = function (xpubs, chain, hdIndex) {
   return getDriver(coin).derivePubKeys(xpubs, chain, hdIndex)
 }
 
+CM.prototype.hdNodeFromHexSeed = function (coin, seed) {
+  return getDriver(coin).hdNodeFromHexSeed(seed)
+}
+
+CM.prototype.hdNodeFromBase58 = function (coin, xpub) {
+  return getDriver(coin).hdNodeFromBase58(xpub)
+}
+
 //
 //
 //
@@ -457,7 +464,6 @@ CM.prototype.parseBIP32Path = function (path, radix) {
 
 CM.prototype.getLoginPath = function () {
   const product = 31337 // CM
-  //var isProdNet = this.bitcoinNetwork.wif === Bitcoin.networks.bitcoin.wif
   const network = this.isProdNet() ? 0 : 1 // Use another path for I2P/TOR?
   return [
     ((0x80000000) | product) >>> 0,
@@ -1028,8 +1034,8 @@ CM.prototype.walletOpen = function (seed, params) {
     params = {}
   return this.getWalletChallenge().then(function (res) {
     var challengeHex = res.challenge
-    //self.log("[CM] walletOpen challenge: " + challengeHex + " seed: " + seed + " network: " + JSON.stringify(self.bitcoinNetwork))
-    var hd = Bitcoin.HDNode.fromSeedHex(seed, self.bitcoinNetwork)
+    //self.log("[CM] walletOpen challenge: " + challengeHex + " seed: " + seed + " isProduction:"+self.isProdNet())
+    var hd = self.hdNodeFromHexSeed(self.isProdNet() ? C.COIN_PROD_BTC : C.COIN_TEST_BTC, seed)
     // Keep the public key for ourselves
     var loginKey = self.deriveKeyFromPath(hd, self.getLoginPath())
     var buf = new Buffer(challengeHex, 'hex')
@@ -1059,7 +1065,7 @@ CM.prototype.walletRegister = function (seed, params) {
   var loginKey
   var self = this
   try {
-    var hd = Bitcoin.HDNode.fromSeedHex(seed, self.bitcoinNetwork)
+    var hd = self.hdNodeFromHexSeed(self.isProdNet() ? C.COIN_PROD_BTC : C.COIN_TEST_BTC, seed)
     loginKey = self.deriveKeyFromPath(hd, self.getLoginPath())
     //self.log('REGISTER hd: ', hd, ' loginKey: ', loginKey)
   } catch (error) {
@@ -1470,7 +1476,7 @@ CM.prototype.ptxVerifyFieldsSignature = function (account, ptx) {
     var keyMessage = ptx.meta.ownerSig
     self.log("ptx keyMessage:", keyMessage)
     var keyPath = keyMessage.keyPath
-    var hd = Bitcoin.HDNode.fromBase58(xpub, self.bitcoinNetwork)
+    const hd = self.hdNodeFromBase58(account.coin, xpub)
     var node = hd.derive(keyPath[0]).derive(keyPath[1])
     var address = node.keyPair.getAddress()
     var ptxSigVerified = false
@@ -1506,10 +1512,9 @@ CM.prototype.signaturesPrepare = function (params) {
   var tx = this.decodeTxFromBuffer(new Buffer(params.rawTx, 'hex'))
   var inputs = params.inputs
   var signatures = []
-  var network = params.network || this.bitcoinNetwork
   var signInput = function (i) {
     var inputInfo = inputs[i]
-    self.log("signInput #" + i + " account#: " + accountNum + " info: '" + JSON.stringify(inputInfo) + "' network: ", network)
+    self.log("signInput #" + i + " account#: " + accountNum + " info: '" + JSON.stringify(inputInfo) + "' coin: " + coin)
     if (!inputInfo)
       throwUnexpectedEx("Internal error: can't find info data for tx input #" + i)
     var accountAddress = inputInfo.aa
@@ -2393,8 +2398,7 @@ CM.prototype.recoveryPrepareTransaction = function (accountInfo, tx, unspents, s
       hd: Bitcoin.HDNode.fromSeedHex(data.seed, network),
       accountNum: data.accountNum,
       rawTx: hexTx,
-      inputs: unspents,
-      network: network
+      inputs: unspents //,network: network
     }).then(function (accountSigs) {
       signatures.push(accountSigs.map(function (sigData) {
         return {
