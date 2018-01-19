@@ -2,7 +2,12 @@ const Bitcoin = require('bitcoinjs-lib')
 const BitcoinMessage = require('bitcoinjs-message')
 const cashaddr = require('cashaddrjs')
 const C = require("./cm-constants")
-const MelisError = require("./melis-error")
+// import { MelisError, throwUnexpectedEx } from "./melis-error"
+const MelisErrorModule = require("./melis-error")
+const MelisError = MelisErrorModule.MelisError
+const throwUnexpectedEx = MelisErrorModule.throwUnexpectedEx
+const Logger = require("./logger")
+const logger = new Logger()
 
 const PREFIX_MAINNET = "bitcoincash"
 const PREFIX_TESTNET = "bchtest"
@@ -145,12 +150,16 @@ function addressFromPubKey(pubKey) {
   return pubKey.getAddress(this.network)
 }
 
+function derivePubKeys(xpubs, chain, hdIndex) {
+  return derivePubKeys_internal(xpubs, chain, hdIndex, this.network)
+}
+
 function extractPubKeyFromOutputScript(script) {
   var type = Bitcoin.script.classifyOutput(script)
   if (type === "pubkey") {
     //return Bitcoin.ECPubKey.fromBuffer(script.chunks[0])
     var decoded = Bitcoin.script.decompile(script)
-    //this.log("Decoded:"); this.log(decoded)
+    //logger.log("Decoded:"); logger.log(decoded)
     return Bitcoin.ECPair.fromPublicKeyBuffer(decoded[0], this.network)
   }
   return null
@@ -166,6 +175,72 @@ function prepareAddressSignature(keyPair, prefix) {
   }
 }
 
+function derivePubKeys_internal(xpubs, chain, hdIndex, network) {
+  var keys = []
+  for (var i = 0; i < xpubs.length; i++) {
+    var hd = Bitcoin.HDNode.fromBase58(xpubs[i], network)
+    var key = hd.derive(chain).derive(hdIndex)
+    keys.push(key.getPublicKeyBuffer().toString('hex'))
+  }
+  return keys
+}
+
+function createRedeemScript(keys, minSignatures, useCheckVerify) {
+  if (!keys || minSignatures <= 0 || minSignatures > keys.length)
+    return null
+  var script
+  if (keys.length === 1) {
+    // sanity check: should never happen because not a P2SH script
+    if (!useCheckVerify)
+      throwUnexpectedEx("Tried to build a redeemscript for single pub key without CHECKSIGVERIFY")
+    script = keys[0] + " OP_CHECKSIGVERIFY"
+  } else {
+    keys.sort()
+    script = "OP_" + minSignatures
+    for (var i = 0; i < keys.length; i++)
+      script += " " + keys[i]
+    script += " OP_" + keys.length
+    if (useCheckVerify)
+      script += " OP_CHECKMULTISIGVERIFY"
+    else
+      script += " OP_CHECKMULTISIG"
+  }
+  // this.log("[createRedeemScript2] script: " + script)
+  return script
+}
+
+function calcP2SH(accountInfo, chain, hdIndex) {
+  var scriptParams = accountInfo.scriptParams
+  var script
+  var hasMandatoryKeys = scriptParams.mandatoryKeys && scriptParams.mandatoryKeys.length > 0
+  var hasOtherKeys = scriptParams.otherKeys && scriptParams.otherKeys.length > 0
+  logger.log("minSignatures: " + accountInfo.minSignatures + " hasMandatoryKeys: " + hasMandatoryKeys + " hasOtherKeys: " + hasOtherKeys + " scriptParams: ", scriptParams)
+  if (hasMandatoryKeys) {
+    logger.log("[calcP2SH] #mandatoryKeys: " + scriptParams.mandatoryKeys.length, scriptParams.mandatoryKeys)
+    script = createRedeemScript(derivePubKeys_internal(scriptParams.mandatoryKeys, chain, hdIndex, this.network), scriptParams.mandatoryKeys.length, hasOtherKeys)
+    if (hasOtherKeys) {
+      logger.log("[calcP2SH] #otherKeys: " + scriptParams.otherKeys.length, scriptParams.otherKeys)
+      var minimumNonMandatorySignatures = accountInfo.minSignatures - scriptParams.mandatoryKeys.length
+      if (accountInfo.serverMandatory)
+        minimumNonMandatorySignatures++
+      if (minimumNonMandatorySignatures <= 0)
+        throwUnexpectedEx("Unable to create address for account: unexpected signature scheme (minimumNonMandatorySignatures=" + minimumNonMandatorySignatures + ")")
+      script += " " + createRedeemScript(derivePubKeys_internal(scriptParams.otherKeys, chain, hdIndex, this.network), minimumNonMandatorySignatures, false)
+    }
+  } else {
+    if (!hasOtherKeys)
+      throwUnexpectedEx("Unexpected account info: no mandatory and other keys")
+    logger.log("[calcP2SH] #otherKeys: " + scriptParams.otherKeys.length, scriptParams.otherKeys)
+    script = createRedeemScript(derivePubKeys_internal(scriptParams.otherKeys, chain, hdIndex, this.network), accountInfo.minSignatures, false)
+  }
+  logger.log("[calcP2SH] script: " + script)
+  var redeemScript = Bitcoin.script.fromASM(script)
+  var scriptPubKey = Bitcoin.script.scriptHash.output.encode(Bitcoin.crypto.hash160(redeemScript))
+  //logger.log("redeemScript: ", Bitcoin.script.toASM(redeemScript))
+  //logger.log("scriptPubKey: ", Bitcoin.script.toASM(scriptPubKey))
+  return Bitcoin.address.fromOutputScript(scriptPubKey, this.network)
+}
+
 //
 //
 //
@@ -173,7 +248,7 @@ function prepareAddressSignature(keyPair, prefix) {
 const COMMON_METHODS = {
   wifToEcPair, signMessageWithKP, verifyBitcoinMessageSignature,
   decodeAddressFromScript, addressFromPubKey, extractPubKeyFromOutputScript,
-  prepareAddressSignature
+  prepareAddressSignature, derivePubKeys, calcP2SH
 }
 
 const BCH_CONSTS = {

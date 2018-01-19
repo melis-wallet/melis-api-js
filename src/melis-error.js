@@ -7,4 +7,11 @@ function MelisError(ex, msg) {
 MelisError.prototype = Object.create(Error.prototype)
 MelisError.prototype.constructor = MelisError
 
-module.exports = MelisError
+function throwUnexpectedEx(msg) {
+  throw new MelisError('UnexpectedClientEx', msg)
+}
+
+module.exports = {
+  MelisError,
+  throwUnexpectedEx
+}

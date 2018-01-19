@@ -12,7 +12,9 @@ const sjcl = require('sjcl-all')
 const C = require("./cm-constants")
 const BC_APIS = require("./blockchain-apis")
 const Networks = require("./networks")
-const MelisError = require("./melis-error")
+const MelisErrorModule = require("./melis-error")
+const MelisError = MelisErrorModule.MelisError
+const throwUnexpectedEx = MelisErrorModule.throwUnexpectedEx
 
 function walletOpen(target, hd, serverWalletData) {
   if (!hd || !serverWalletData)
@@ -127,9 +129,9 @@ function throwBadParamEx(paramName, msg) {
   throw buildBadParamEx(paramName, msg)
 }
 
-function throwUnexpectedEx(msg) {
-  throw new MelisError('UnexpectedClientEx', msg)
-}
+// function throwUnexpectedEx(msg) {
+//   throw new MelisError('UnexpectedClientEx', msg)
+// }
 
 function throwInvalidSignatureEx(msg) {
   throw new MelisError('CmInvalidSignatureException', msg)
@@ -311,7 +313,7 @@ CM.prototype.setRpcTimeout = function (ms) {
 }
 
 CM.prototype.isProdNet = function () {
-  return this.cmConfiguration.network === C.CHAIN_MAIN
+  return !this.cmConfiguration.platform || this.cmConfiguration.platform === "production"
 }
 
 CM.prototype.isTestNet = function () {
@@ -368,7 +370,7 @@ CM.prototype.verifyBitcoinMessageSignature = function (coin, address, signature,
 CM.prototype.signMessageWithAA = function (account, aa, message) {
   if (account.type !== C.TYPE_PLAIN_HD)
     throw new MelisError('CmBadParamException', 'Only single signature accounts can sign messages')
-  var key = this.deriveHdAccount(account.num, aa.chain, aa.hdindex)
+  var key = this.deriveMyHdAccount(account.num, aa.chain, aa.hdindex)
   return this.signMessageWithKP(account.coin, key.keyPair, message)
 }
 
@@ -384,15 +386,16 @@ CM.prototype.prepareAddressSignature = function (coin, keyPair, prefix) {
   return getDriver(coin).prepareAddressSignature(keyPair, prefix)
 }
 
-CM.prototype.extractPubKeyFromOutputScript = function (script) {
-  var type = Bitcoin.script.classifyOutput(script)
-  if (type === "pubkey") {
-    //return Bitcoin.ECPubKey.fromBuffer(script.chunks[0])
-    var decoded = Bitcoin.script.decompile(script)
-    //this.log("Decoded:"); this.log(decoded)
-    return Bitcoin.ECPair.fromPublicKeyBuffer(decoded[0], this.bitcoinNetwork)
-  }
-  return null
+CM.prototype.extractPubKeyFromOutputScript = function (coin, script) {
+  return getDriver(coin).extractPubKeyFromOutputScript(script)
+}
+
+CM.prototype.calcP2SH = function (coin, accountInfo, chain, hdIndex) {
+  return getDriver(coin).calcP2SH(accountInfo, chain, hdIndex)
+}
+
+CM.prototype.derivePubKeys = function (xpubs, chain, hdIndex) {
+  return getDriver(coin).derivePubKeys(xpubs, chain, hdIndex)
 }
 
 //
@@ -455,8 +458,7 @@ CM.prototype.parseBIP32Path = function (path, radix) {
 CM.prototype.getLoginPath = function () {
   const product = 31337 // CM
   //var isProdNet = this.bitcoinNetwork.wif === Bitcoin.networks.bitcoin.wif
-  const isProdNet = !this.cmConfiguration.platform || this.cmConfiguration.platform === "production"
-  const network = isProdNet ? 0 : 1 // Use another path for I2P/TOR?
+  const network = this.isProdNet() ? 0 : 1 // Use another path for I2P/TOR?
   return [
     ((0x80000000) | product) >>> 0,
     ((0x80000000) | network) >>> 0
@@ -480,23 +482,20 @@ CM.prototype.deriveKeyFromPath = function (hdnode, path) {
 }
 
 // BIP44 standard derivation
-CM.prototype.deriveHdAccount_explicit = function (network, hd, accountNum, chain, index) {
-  var isProdNet = !network || network.wif === Bitcoin.networks.bitcoin.wif
-  //this.log("[deriveHdAccount_explicit] " + accountNum + "/" + chain + "/" + index + " isProdNet: " + isProdNet, network)
+CM.prototype.deriveMyHdAccount = function (accountNum, chain, index) {
+  return this.deriveHdAccount(this.hdWallet, accountNum, chain, index)
+}
+CM.prototype.deriveHdAccount = function (hd, accountNum, chain, index) {
   var key = hd.deriveHardened(44)
-  key = key.deriveHardened(isProdNet ? 0 : 1)
+  key = key.deriveHardened(this.isProdNet() ? 0 : 1)
   key = key.deriveHardened(accountNum)
   if (chain === undefined || chain === null || index === undefined || index === null)
     return key
   return key.derive(chain).derive(index)
 }
 
-CM.prototype.deriveHdAccount = function (accountNum, chain, hdindex) {
-  return this.deriveHdAccount_explicit(this.bitcoinNetwork, this.hdWallet, accountNum, chain, hdindex)
-}
-
 CM.prototype.accountAddressToWIF = function (account, aa) {
-  var key = this.deriveHdAccount(account.num, aa.chain, aa.hdindex)
+  const key = this.deriveMyHdAccount(account.num, aa.chain, aa.hdindex)
   return key.keyPair.toWIF()
 }
 
@@ -894,50 +893,6 @@ CM.prototype.decodeTxFromBuffer = function (buf) {
   return Bitcoin.Transaction.fromBuffer(buf)
 }
 
-// Unused
-// CM.prototype.createTxBuilderFromTxBuffer = function (buf) {
-//   return Bitcoin.TransactionBuilder.fromTransaction(this.decodeTxFromBuffer(buf), this.bitcoinNetwork)
-// }
-// CM.prototype.wifToEcPair = function (wif) {
-//   return Bitcoin.ECPair.fromWIF(wif, this.bitcoinNetwork)
-// }
-//
-// CM.prototype.signMessageWithKP = function (keyPair, message) {
-//   var pk = keyPair.d.toBuffer(32)
-//   return BitcoinMessage.sign(message, pk, true, this.bitcoinNetwork.messagePrefix).toString('base64')
-// }
-
-// CM.prototype.signMessageWithAA = function (account, aa, message) {
-//   if (account.type !== C.TYPE_PLAIN_HD)
-//     throw new MelisError('CmBadParamException', 'Only single signature accounts can sign messages')
-//   var key = this.deriveHdAccount(account.num, aa.chain, aa.hdindex)
-//   return this.signMessageWithKP(key.keyPair, message)
-// }
-
-// CM.prototype.verifyBitcoinMessageSignature = function (address, signature, message) {
-//   //return Bitcoin.message.verify(address, signature, message, this.bitcoinNetwork)
-//   return BitcoinMessage.verify(message, address, new Buffer(signature, 'base64'), this.bitcoinNetwork.messagePrefix)
-// }
-//
-// CM.prototype.decodeAddressFromScript = function (script) {
-//   return Bitcoin.address.fromOutputScript(script, this.bitcoinNetwork)
-// }
-
-// CM.prototype.addressFromPubKey = function (pubKey) {
-//   return pubKey.getAddress(this.bitcoinNetwork)
-// }
-
-// CM.prototype.extractPubKeyFromOutputScript = function (script) {
-//   var type = Bitcoin.script.classifyOutput(script)
-//   if (type === "pubkey") {
-//     //return Bitcoin.ECPubKey.fromBuffer(script.chunks[0])
-//     var decoded = Bitcoin.script.decompile(script)
-//     //this.log("Decoded:"); this.log(decoded)
-//     return Bitcoin.ECPair.fromPublicKeyBuffer(decoded[0], this.bitcoinNetwork)
-//   }
-//   return null
-// }
-
 CM.prototype.pushTx = function (hex) {
   return this.rpc(C.UTILS_PUSH_TX, { hex: hex })
 }
@@ -1227,7 +1182,7 @@ CM.prototype.accountCreate = function (params) {
   var self = this
   return numPromise.then(function (accountNum) {
     params.accountNum = accountNum
-    var accountHd = self.deriveHdAccount(accountNum)
+    var accountHd = self.deriveMyHdAccount(accountNum)
     params.xpub = accountHd.neutered().toBase58()
     return self.rpc(C.ACCOUNT_REGISTER, params)
   }).then(function (res) {
@@ -1245,7 +1200,7 @@ CM.prototype.accountJoin = function (params) {
     numPromise = Q(params.accountNum)
   var self = this
   return numPromise.then(function (accountNum) {
-    var accountHd = self.deriveHdAccount(accountNum)
+    var accountHd = self.deriveMyHdAccount(accountNum)
     return self.rpc(C.ACCOUNT_JOIN, {
       code: params.code,
       accountNum: accountNum,
@@ -1473,7 +1428,7 @@ CM.prototype.ptxCancel = function (ptx) {
 
 CM.prototype.ptxSignFields = function (account, ptx) {
   var num1 = simpleRandomInt(C.MAX_SUBPATH), num2 = simpleRandomInt(C.MAX_SUBPATH)
-  var node = this.deriveHdAccount(account.num, num1, num2)
+  var node = this.deriveMyHdAccount(account.num, num1, num2)
   var sig = this.signMessageWithKP(account.coin, node.keyPair, ptx.rawTx)
   //return { keyPath: [num1, num2], base64Sig: sig.toString('base64')}
   //    var verified = self.verifyMessage(node.keyPair.getAddress(), sig, msg)
@@ -1558,7 +1513,7 @@ CM.prototype.signaturesPrepare = function (params) {
     if (!inputInfo)
       throwUnexpectedEx("Internal error: can't find info data for tx input #" + i)
     var accountAddress = inputInfo.aa
-    var key = self.deriveHdAccount_explicit(network, hd, accountNum, accountAddress.chain, accountAddress.hdindex)
+    var key = self.deriveHdAccount(hd, accountNum, accountAddress.chain, accountAddress.hdindex)
     var redeemScript
     if (accountAddress.redeemScript)
       redeemScript = new Buffer(accountAddress.redeemScript, "hex")
@@ -1617,82 +1572,16 @@ CM.prototype.areAddressesOfAccount = function (account, addresses) {
   return true
 }
 
-function createRedeemScript(keys, minSignatures, useCheckVerify) {
-  if (!keys || minSignatures <= 0 || minSignatures > keys.length)
-    return null
-  var script
-  if (keys.length === 1) {
-    // sanity check: should never happen because not a P2SH script
-    if (!useCheckVerify)
-      throwUnexpectedEx("Tried to build a redeemscript for single pub key without CHECKSIGVERIFY")
-    script = keys[0] + " OP_CHECKSIGVERIFY"
-  } else {
-    keys.sort()
-    script = "OP_" + minSignatures
-    for (var i = 0; i < keys.length; i++)
-      script += " " + keys[i]
-    script += " OP_" + keys.length
-    if (useCheckVerify)
-      script += " OP_CHECKMULTISIGVERIFY"
-    else
-      script += " OP_CHECKMULTISIG"
-  }
-  // this.log("[createRedeemScript2] script: " + script)
-  return script
-}
-
-function derivePubKeys(xpubs, chain, hdIndex, network) {
-  var keys = []
-  for (var i = 0; i < xpubs.length; i++) {
-    var hd = Bitcoin.HDNode.fromBase58(xpubs[i], network)
-    var key = hd.derive(chain).derive(hdIndex)
-    keys.push(key.getPublicKeyBuffer().toString('hex'))
-  }
-  return keys
-}
-
-CM.prototype.calcP2SH = function (accountInfo, chain, hdIndex, network) {
-  var scriptParams = accountInfo.scriptParams
-  var script
-  var hasMandatoryKeys = scriptParams.mandatoryKeys && scriptParams.mandatoryKeys.length > 0
-  var hasOtherKeys = scriptParams.otherKeys && scriptParams.otherKeys.length > 0
-  this.log("minSignatures: " + accountInfo.minSignatures + " hasMandatoryKeys: " + hasMandatoryKeys + " hasOtherKeys: " + hasOtherKeys + " scriptParams: ", scriptParams)
-  if (hasMandatoryKeys) {
-    this.log("[calcP2SH] #mandatoryKeys: " + scriptParams.mandatoryKeys.length, scriptParams.mandatoryKeys)
-    script = createRedeemScript(derivePubKeys(scriptParams.mandatoryKeys, chain, hdIndex, network), scriptParams.mandatoryKeys.length, hasOtherKeys)
-    if (hasOtherKeys) {
-      this.log("[calcP2SH] #otherKeys: " + scriptParams.otherKeys.length, scriptParams.otherKeys)
-      var minimumNonMandatorySignatures = accountInfo.minSignatures - scriptParams.mandatoryKeys.length
-      if (accountInfo.serverMandatory)
-        minimumNonMandatorySignatures++
-      if (minimumNonMandatorySignatures <= 0)
-        throwUnexpectedEx("Unable to create address for account: unexpected signature scheme (minimumNonMandatorySignatures=" + minimumNonMandatorySignatures + ")")
-      script += " " + createRedeemScript(derivePubKeys(scriptParams.otherKeys, chain, hdIndex, network), minimumNonMandatorySignatures, false)
-    }
-  } else {
-    if (!hasOtherKeys)
-      throwUnexpectedEx("Unexpected account info: no mandatory and other keys")
-    this.log("[calcP2SH] #otherKeys: " + scriptParams.otherKeys.length, scriptParams.otherKeys)
-    script = createRedeemScript(derivePubKeys(scriptParams.otherKeys, chain, hdIndex, network), accountInfo.minSignatures, false)
-  }
-  this.log("[calcP2SH] script: " + script)
-  var redeemScript = Bitcoin.script.fromASM(script)
-  var scriptPubKey = Bitcoin.script.scriptHash.output.encode(Bitcoin.crypto.hash160(redeemScript))
-  //this.log("redeemScript: ", Bitcoin.script.toASM(redeemScript))
-  //this.log("scriptPubKey: ", Bitcoin.script.toASM(scriptPubKey))
-  return Bitcoin.address.fromOutputScript(scriptPubKey, network)
-}
-
 CM.prototype.isAddressOfAccount = function (account, accountAddress) {
   var addr
   switch (account.type) {
     case C.TYPE_PLAIN_HD:
-      var key = this.deriveHdAccount(account.num, accountAddress.chain, accountAddress.hdindex)
+      var key = this.deriveMyHdAccount(account.num, accountAddress.chain, accountAddress.hdindex)
       addr = key.getAddress()
       break
     default:
       var info = this.peekAccountInfo(account)
-      addr = this.calcP2SH(info, accountAddress.chain, accountAddress.hdindex, this.bitcoinNetwork)
+      addr = this.calcP2SH(account.coin, info, accountAddress.chain, accountAddress.hdindex)
   }
   this.log("[isAddressesOfAccount] type: " + account.type + " accountAddress: " + accountAddress.address + " calcAddr: " + addr)
   return accountAddress.address === addr
@@ -2292,7 +2181,7 @@ CM.prototype.updateNetworkFees = function () {
 }
 
 CM.prototype.verifyInstantViaRest = function (account, address, hash, n) {
-  var node = this.deriveHdAccount(account.num, address.chain, address.hdindex)
+  var node = this.deriveMyHdAccount(account.num, address.chain, address.hdindex)
   var data = this.prepareAddressSignature(account.coin, node.keyPair, C.MSG_PREFIX_INSTANT_VERIFY)
   return fetch(this.peekRestPrefix() + "/verifyInstantTx?txHash=" + hash + "&outputNum=" + n + "&sig=" + encodeURIComponent(data.base64Sig), {
     headers: { "user-agent": C.MELIS_USER_AGENT }
@@ -2389,10 +2278,6 @@ CM.prototype.peekAccountInfos = function () {
 
 CM.prototype.peekAccountInfo = function (account) {
   return this.walletData.infos[account.pubId]
-}
-
-CM.prototype.derivePubKeys = function (xpubs, chain, hdIndex) {
-  return derivePubKeys(xpubs, chain, hdIndex, this.bitcoinNetwork)
 }
 
 CM.prototype.deviceIdHash = function (deviceId) {
@@ -2493,7 +2378,7 @@ CM.prototype.recoveryPrepareTransaction = function (accountInfo, tx, unspents, s
   seeds.forEach(function (seed) {
     var walletHd = Bitcoin.HDNode.fromSeedHex(seed, network)
     var cosigner = cosigners.find(function (cosigner) {
-      var accountHd = self.deriveHdAccount_explicit(network, walletHd, cosigner.accountNum)
+      var accountHd = self.deriveHdAccount(walletHd, cosigner.accountNum)
       return accountHd.neutered().toBase58() === cosigner.xpub
     })
     if (!cosigner)
