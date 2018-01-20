@@ -393,7 +393,7 @@ CM.prototype.calcP2SH = function (coin, accountInfo, chain, hdIndex) {
   return getDriver(coin).calcP2SH(accountInfo, chain, hdIndex)
 }
 
-CM.prototype.derivePubKeys = function (xpubs, chain, hdIndex) {
+CM.prototype.derivePubKeys = function (coin, xpubs, chain, hdIndex) {
   return getDriver(coin).derivePubKeys(xpubs, chain, hdIndex)
 }
 
@@ -2315,8 +2315,8 @@ CM.prototype.recoveryPrepareInputSig = function (index, accountInfo, unspent, ac
   var scriptParams = accountInfo.scriptParams
   var mandatoryPubKeys = []
   if (scriptParams.mandatoryKeys && scriptParams.mandatoryKeys.length > 0)
-    mandatoryPubKeys = this.derivePubKeys(scriptParams.mandatoryKeys, unspent.aa.chain, unspent.aa.hdindex)
-  var otherPubKeys = this.derivePubKeys(scriptParams.otherKeys ? scriptParams.otherKeys : [], unspent.aa.chain, unspent.aa.hdindex)
+    mandatoryPubKeys = this.derivePubKeys(accountInfo.coin, scriptParams.mandatoryKeys, unspent.aa.chain, unspent.aa.hdindex)
+  var otherPubKeys = this.derivePubKeys(accountInfo.coin, scriptParams.otherKeys ? scriptParams.otherKeys : [], unspent.aa.chain, unspent.aa.hdindex)
   this.log("accountsSigData: ", accountsSigData)
   this.log("derived mandatory PubKeys: ", mandatoryPubKeys)
   this.log("derived other PubKeys: ", otherPubKeys)
@@ -2367,7 +2367,7 @@ CM.prototype.recoveryPrepareInputSig = function (index, accountInfo, unspent, ac
   return p2shScript
 }
 
-CM.prototype.recoveryPrepareTransaction = function (accountInfo, tx, unspents, seeds, serverSignaturesData, network) {
+CM.prototype.recoveryPrepareTransaction = function (accountInfo, tx, unspents, seeds, serverSignaturesData) {
   this.log("[recoveryPrepareTransaction] unspents: ", unspents)
   this.log("[recoveryPrepareTransaction] server signature data: ", serverSignaturesData)
   if (accountInfo.minSignatures !== seeds.length)
@@ -2381,7 +2381,7 @@ CM.prototype.recoveryPrepareTransaction = function (accountInfo, tx, unspents, s
   // Discover which account is owned by which seed
   var accountsData = []
   seeds.forEach(function (seed) {
-    var walletHd = Bitcoin.HDNode.fromSeedHex(seed, network)
+    var walletHd = self.hdNodeFromHexSeed(accountInfo.coin, seed)
     var cosigner = cosigners.find(function (cosigner) {
       var accountHd = self.deriveHdAccount(walletHd, cosigner.accountNum)
       return accountHd.neutered().toBase58() === cosigner.xpub
@@ -2394,11 +2394,11 @@ CM.prototype.recoveryPrepareTransaction = function (accountInfo, tx, unspents, s
   var f = function (i) {
     var data = accountsData[i]
     return self.signaturesPrepare({
-      coin: data.coin,
-      hd: Bitcoin.HDNode.fromSeedHex(data.seed, network),
+      coin: accountInfo.coin,
+      hd: self.hdNodeFromHexSeed(accountInfo.coin, data.seed),
       accountNum: data.accountNum,
       rawTx: hexTx,
-      inputs: unspents //,network: network
+      inputs: unspents
     }).then(function (accountSigs) {
       signatures.push(accountSigs.map(function (sigData) {
         return {
