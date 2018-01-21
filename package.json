@@ -19,7 +19,7 @@
   "dependencies": {
     "bitcoinjs-lib": "^3.3.2",
     "bitcoinjs-message": "^2.0.0",
-    "cashaddrjs": "^0.2.7",
+    "cashaddrjs": "^0.2.8",
     "detect-node": "^2.0.3",
     "ecurve": "^1.0.6",
     "isomorphic-fetch": "^2.2.1",
