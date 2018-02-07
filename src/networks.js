@@ -86,6 +86,17 @@ function hashForSignatureCash(tx, index, redeemScript, amount, hashFlags) {
   return tx.hashForWitnessV0(index, redeemScript, amount, hashFlags + SIGHASH_BITCOINCASHBIP143)
 }
 
+function toScriptSignatureLegacy(signature, hashFlags) {
+  return signature.toScriptSignature(hashFlags)
+}
+
+function toScriptSignatureCash(signature, hashFlags) {
+  const hashTypeBuffer = Buffer.alloc(1)
+  hashFlags |= SIGHASH_BITCOINCASHBIP143
+  hashTypeBuffer.writeUInt8(hashFlags, 0)
+  return Buffer.concat([signature.toDER(), hashTypeBuffer])
+}
+
 function convertBech32CashAddressToLegacy(address, self) {
   if (C.LEGACY_BITCOIN_REGEX.test(address))
     return address
@@ -267,6 +278,7 @@ const BCH_CONSTS = {
 const BTC_COMMON = {
   isValidAddress: isValidLegacyAddress,
   hashForSignature: hashForSignatureLegacy,
+  toScriptSignature: toScriptSignatureLegacy,
   getAddressBytes: getAddressBytesFromLegacyAddr,
   toOutputScript: toOutputScriptLegacy
 }
@@ -275,6 +287,7 @@ const BCH_COMMON = {
   C: BCH_CONSTS,
   isValidAddress: isValidBchAddress,
   hashForSignature: hashForSignatureCash,
+  toScriptSignature: toScriptSignatureCash,
   getAddressBytes: getAddressBytesFromBchAddress,
   toOutputScript: toOutputScriptCash
 }
