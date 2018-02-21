@@ -59,6 +59,7 @@ function updateAccount(target, account, balance, info) {
 function updateServerConfig(target, config) {
   if (config.message)
     target.log("Server message status: " + config.message)
+  target.useTestPaths = !(!config.platform || config.platform === "production")
   target.cmConfiguration = config
   target.lastBlocks = config.topBlocks
   target.platform = config.platform
@@ -252,6 +253,8 @@ function rpcErrorHandler(target, res) {
 function CM(config) {
   if (!config)
     config = {}
+  if (config.useTestPaths)
+    this.useTestPaths = config.useTestPaths
   if (config.stompEndpoint || process.env.MELIS_ENDPOINT)
     this.stompEndpoint = process.env.MELIS_ENDPOINT || config.stompEndpoint
   this.apiDiscoveryUrl = process.env.MELIS_DISCOVER || config.apiDiscoveryUrl || C.MELIS_DISCOVER
@@ -312,30 +315,22 @@ CM.prototype.setRpcTimeout = function (ms) {
 }
 
 CM.prototype.isProdNet = function () {
-  return !this.cmConfiguration.platform || this.cmConfiguration.platform === "production"
-}
-
-CM.prototype.isTestNet = function () {
-  return this.cmConfiguration.network === C.CHAIN_TESTNET
-}
-
-CM.prototype.isRegTest = function () {
-  return this.cmConfiguration.network === C.CHAIN_REGTEST
+  return !this.useTestPaths
 }
 
 //
 // Coin dependent functions
 //
 
-CM.prototype.getCoinNetwork = function (coin) {
-  return Networks[coin]
-}
-
 function getDriver(coin) {
   const driver = Networks[coin]
   if (!driver)
     throw new MelisError("Unknown coin: " + coin)
   return driver
+}
+
+CM.prototype.getCoinDriver = function (coin) {
+  return getDriver(coin)
 }
 
 CM.prototype.coinAddressToBytes = function (coin, address) {
@@ -348,6 +343,10 @@ CM.prototype.hashForSignature = function (coin, tx, index, redeemScript, amount,
 
 CM.prototype.isValidAddress = function (coin, address) {
   return getDriver(coin).isValidAddress(address)
+}
+
+CM.prototype.toScriptSignature = function (coin, signature, hashFlags) {
+  return getDriver(coin).toScriptSignature(signature, hashFlags)
 }
 
 CM.prototype.toOutputScript = function (coin, address) {
@@ -899,8 +898,8 @@ CM.prototype.decodeTxFromBuffer = function (buf) {
   return Bitcoin.Transaction.fromBuffer(buf)
 }
 
-CM.prototype.pushTx = function (hex) {
-  return this.rpc(C.UTILS_PUSH_TX, { hex: hex })
+CM.prototype.pushTx = function (coin, hex) {
+  return this.rpc(C.UTILS_PUSH_TX, { coin, hex })
 }
 
 CM.prototype.getFeeInfo = function () {
@@ -1038,7 +1037,7 @@ CM.prototype.walletOpen = function (seed, params) {
     var hd = self.hdNodeFromHexSeed(self.isProdNet() ? C.COIN_PROD_BTC : C.COIN_TEST_BTC, seed)
     // Keep the public key for ourselves
     var loginKey = self.deriveKeyFromPath(hd, self.getLoginPath())
-    var buf = new Buffer(challengeHex, 'hex')
+    var buf = Buffer.from(challengeHex, 'hex')
     var signature = loginKey.sign(buf)
     //self.log("child: " + child.getPublicKeyBuffer().toString('hex')() + " sig: " + signature)
     //self.log("pubKey: " + masterPubKey + " r: " + signature.r.toString() + " s: " + signature.s.toString())
@@ -1509,25 +1508,24 @@ CM.prototype.signaturesPrepare = function (params) {
   var coin = params.coin
   var accountNum = params.accountNum
   var progressCallback = params.progressCallback
-  var tx = this.decodeTxFromBuffer(new Buffer(params.rawTx, 'hex'))
+  var tx = this.decodeTxFromBuffer(Buffer.from(params.rawTx, 'hex'))
   var inputs = params.inputs
   var signatures = []
-  var signInput = function (i) {
+  const signInput = function (i) {
     var inputInfo = inputs[i]
     self.log("signInput #" + i + " account#: " + accountNum + " info: '" + JSON.stringify(inputInfo) + "' coin: " + coin)
     if (!inputInfo)
       throwUnexpectedEx("Internal error: can't find info data for tx input #" + i)
-    var accountAddress = inputInfo.aa
-    var key = self.deriveHdAccount(hd, accountNum, accountAddress.chain, accountAddress.hdindex)
-    var redeemScript
+    const accountAddress = inputInfo.aa
+    const key = self.deriveHdAccount(hd, accountNum, accountAddress.chain, accountAddress.hdindex)
+    let redeemScript
     if (accountAddress.redeemScript)
-      redeemScript = new Buffer(accountAddress.redeemScript, "hex")
+      redeemScript = Buffer.from(accountAddress.redeemScript, "hex")
     else
       redeemScript = self.toOutputScript(coin, key.getAddress()) // o inputInfo.script
     //self.log("aa.script " + accountAddress.redeemScript)
-    var hashForSignature = self.hashForSignature(coin, tx, i, redeemScript, inputInfo.amount, Bitcoin.Transaction.SIGHASH_ALL)
-    var signature = key.sign(hashForSignature)
-    //var sigHex = signature.toDER().toString('hex') // signature.toScriptSignature(Bitcoin.Transaction.SIGHASH_ALL)
+    const hashForSignature = self.hashForSignature(coin, tx, i, redeemScript, inputInfo.amount, Bitcoin.Transaction.SIGHASH_ALL)
+    const signature = key.sign(hashForSignature)
     //self.log("[signed input #" + i + "] redeemScript: " + redeemScript.buffer.toString('hex') +
     //        " hashForSignature: " + hashForSignature.toString('hex')) // + " sig: " + sig.toString('hex'))
     signatures.push({ key: key, sig: signature })
@@ -1619,7 +1617,7 @@ CM.prototype.analyzeTx = function (state, options) {
   var ptx = state.ptx
   var inputs = ptx.inputs
   var changes = ptx.changes || []
-  var tx = this.decodeTxFromBuffer(new Buffer(ptx.rawTx, 'hex'))
+  var tx = this.decodeTxFromBuffer(Buffer.from(ptx.rawTx, 'hex'))
   var amountInOur = 0
   var amountInOther = 0
   var amountToRecipients = 0
@@ -1635,7 +1633,7 @@ CM.prototype.analyzeTx = function (state, options) {
     this.log("INPUT #" + i + " " + txInput.hash.toString('hex') + "/" + txInput.index)
     for (j = 0; j < inputs.length; j++) {
       var preparedInput = inputs[j]
-      var prepInputHash = new Buffer(preparedInput.tx, 'hex').reverse()
+      var prepInputHash = Buffer.from(preparedInput.tx, 'hex').reverse()
       if (txInput.hash.equals(prepInputHash) && txInput.index === preparedInput.n) {
         // If we do not use Bitcoin Cash or segwit txs we have to trust the server
         // We could use an external service to know input values but leaking private infos
@@ -2306,17 +2304,20 @@ function pubKeyComparator(a, b) {
   return a.pubKey.localeCompare(b.pubKey)
 }
 
-CM.prototype.recoveryPrepareInputSig = function (index, accountInfo, unspent, accountsSigData) {
-  var bscript = Bitcoin.script
+CM.prototype.recoveryPrepareMultiSigInputSig = function (index, accountInfo, unspent, accountsSigData) {
+  const bscript = Bitcoin.script
+  const coin = accountInfo.coin
   //console.log("input #" + index + ": ", input)
   //console.log("unspent #" + index + ": ", unspent)
-  this.log("[recovery-prepareInputSig] inputIndex: " + index + " unspent: " + unspent.aa.address + " chain: " + unspent.aa.chain + " hdindex: " + unspent.aa.hdindex + " redeemScr: " + unspent.aa.redeemScript)
+  this.log("[recovery-prepareInputSig] coin: " + coin + " inputIndex: " + index + " unspent: " + unspent.aa.address + " chain: " + unspent.aa.chain + " hdindex: " + unspent.aa.hdindex + " redeemScr: " + unspent.aa.redeemScript)
   //console.log("#" + index + " srvPubKey: " + serverSigData.pubKey)
   var scriptParams = accountInfo.scriptParams
+  if (!scriptParams)
+    throw new MelisError('CmBadParamException', 'Unable to find scriptParams preparing recovery signatures')
   var mandatoryPubKeys = []
   if (scriptParams.mandatoryKeys && scriptParams.mandatoryKeys.length > 0)
-    mandatoryPubKeys = this.derivePubKeys(accountInfo.coin, scriptParams.mandatoryKeys, unspent.aa.chain, unspent.aa.hdindex)
-  var otherPubKeys = this.derivePubKeys(accountInfo.coin, scriptParams.otherKeys ? scriptParams.otherKeys : [], unspent.aa.chain, unspent.aa.hdindex)
+    mandatoryPubKeys = this.derivePubKeys(coin, scriptParams.mandatoryKeys, unspent.aa.chain, unspent.aa.hdindex)
+  var otherPubKeys = this.derivePubKeys(coin, scriptParams.otherKeys ? scriptParams.otherKeys : [], unspent.aa.chain, unspent.aa.hdindex)
   this.log("accountsSigData: ", accountsSigData)
   this.log("derived mandatory PubKeys: ", mandatoryPubKeys)
   this.log("derived other PubKeys: ", otherPubKeys)
@@ -2349,38 +2350,81 @@ CM.prototype.recoveryPrepareInputSig = function (index, accountInfo, unspent, ac
   otherSigs.sort(pubKeyComparator)
 
   var script = 'OP_0';   // Work around a bug in CHECKMULTISIG that is now a required part of the protocol.
-  otherSigs.forEach(function (sigData) {
-    script += ' ' + sigData.sig.toScriptSignature(sigData.hash).toString('hex')
+  otherSigs.forEach(sigData => {
+    const scriptSignature = self.toScriptSignature(coin, sigData.sig, sigData.hash)
+    script += ' ' + scriptSignature.toString('hex')
   })
   if (mandatorySigs.length > 1 && otherSigs.length > 0)
     script += ' OP_0'
-  mandatorySigs.forEach(function (sigData) {
-    script += ' ' + sigData.sig.toScriptSignature(sigData.hash).toString('hex')
+  mandatorySigs.forEach(sigData => {
+    const scriptSignature = self.toScriptSignature(coin, sigData.sig, sigData.hash)
+    script += ' ' + scriptSignature.toString('hex')
   })
 
   self.log("scriptPubKey: " + script)
   var scriptSig = bscript.fromASM(script)
-  var bufferRedeemScript = new Buffer(unspent.aa.redeemScript, 'hex')
+  var bufferRedeemScript = Buffer.from(unspent.aa.redeemScript, 'hex')
   self.log("redeemScript: " + bscript.toASM(bufferRedeemScript))
 
-  var p2shScript = Bitcoin.script.scriptHash.input.encode(scriptSig, bufferRedeemScript)
+  var p2shScript = bscript.scriptHash.input.encode(scriptSig, bufferRedeemScript)
   return p2shScript
 }
 
-CM.prototype.recoveryPrepareTransaction = function (accountInfo, tx, unspents, seeds, serverSignaturesData) {
-  this.log("[recoveryPrepareTransaction] unspents: ", unspents)
-  this.log("[recoveryPrepareTransaction] server signature data: ", serverSignaturesData)
+CM.prototype.recoveryPrepareSimpleTx = function (params) {
+  this.log("[recoveryPrepareSimpleTx params: ", params)
+  const self = this
+  const seed = params.seed
+  const accountInfo = params.accountInfo
+  const unspents = params.unspents
+  const fees = params.fees
+  const destinationAddress = params.destinationAddress
+
+  const coin = accountInfo.coin
+  const bscript = Bitcoin.script
+  const tx = new Bitcoin.Transaction()
+  let inputAmount = 0
+  for (let i = 0; i < unspents.length; i++) {
+    let unspent = unspents[i]
+    tx.addInput(Buffer.from(unspent.tx, 'hex').reverse(), unspent.n, Bitcoin.Transaction.DEFAULT_SEQUENCE)
+    inputAmount += unspent.amount
+  }
+  if (inputAmount === 0)
+    throw new MelisError("Unexpected: input amount is zero")
+  const outputSig = this.toOutputScript(coin, destinationAddress)
+  this.log("[rebuildSingleTx] inputAmount:" + inputAmount + " fees: " + fees + " outputSig: " + outputSig.toString('hex'))
+  tx.addOutput(outputSig, inputAmount - fees)
+
+  return self.signaturesPrepare({
+    coin,
+    hd: self.hdNodeFromHexSeed(coin, seed),
+    accountNum: accountInfo.accountNum,
+    rawTx: tx.toHex(),
+    inputs: unspents
+  }).then(signatures => {
+    for (let i = 0; i < unspents.length; i++) {
+      let sigData = signatures[i]
+      const scriptSignature = self.toScriptSignature(coin, sigData.sig, Bitcoin.Transaction.SIGHASH_ALL)
+      const inputScript = bscript.compile([scriptSignature, sigData.key.getPublicKeyBuffer()])
+      tx.setInputScript(i, inputScript)
+    }
+    return tx
+  })
+}
+
+CM.prototype.recoveryPrepareMultiSigTx = function (accountInfo, tx, unspents, seeds, serverSignaturesData) {
+  this.log("[recoveryPrepareMultiSigTx] unspents: ", unspents)
+  this.log("[recoveryPrepareMultiSigTx] server signature data: ", serverSignaturesData)
   if (accountInfo.minSignatures !== seeds.length)
     throw new MelisError('CmBadParamException', '#minSignatures != #seeds')
 
-  var self = this
-  var cosigners = accountInfo.cosigners
-  var hexTx = tx.toHex()
-  var signatures = []
+  const self = this
+  const cosigners = accountInfo.cosigners
+  const hexTx = tx.toHex()
+  const signatures = []
 
   // Discover which account is owned by which seed
-  var accountsData = []
-  seeds.forEach(function (seed) {
+  const accountsData = []
+  seeds.forEach(seed => {
     var walletHd = self.hdNodeFromHexSeed(accountInfo.coin, seed)
     var cosigner = cosigners.find(function (cosigner) {
       var accountHd = self.deriveHdAccount(walletHd, cosigner.accountNum)
@@ -2391,15 +2435,15 @@ CM.prototype.recoveryPrepareTransaction = function (accountInfo, tx, unspents, s
     accountsData.push({ seed: seed, accountNum: cosigner.accountNum })
   })
 
-  var f = function (i) {
-    var data = accountsData[i]
+  const f = function (i) {
+    const data = accountsData[i]
     return self.signaturesPrepare({
       coin: accountInfo.coin,
       hd: self.hdNodeFromHexSeed(accountInfo.coin, data.seed),
       accountNum: data.accountNum,
       rawTx: hexTx,
       inputs: unspents
-    }).then(function (accountSigs) {
+    }).then(accountSigs => {
       signatures.push(accountSigs.map(function (sigData) {
         return {
           pubKey: sigData.key.getPublicKeyBuffer().toString('hex'),
@@ -2413,24 +2457,22 @@ CM.prototype.recoveryPrepareTransaction = function (accountInfo, tx, unspents, s
   }
 
   return f(0).then(function () {
-    var allSignatures = []
+    const allSignatures = []
     for (var i = 0; i < tx.ins.length; i++) {
-      var arr = []
+      const arr = []
       if (accountInfo.serverSignature && accountInfo.serverMandatory) {
-        var serverPubKey = new Buffer(serverSignaturesData[i].pubKey, 'base64').toString('hex')
-        var serverSig = Bitcoin.ECSignature.fromDER(new Buffer(serverSignaturesData[i].sig, 'base64'))
-        var serverSigData = { pubKey: serverPubKey, sig: serverSig, hash: Bitcoin.Transaction.SIGHASH_NONE }
+        const serverPubKey = Buffer.from(serverSignaturesData[i].pubKey, 'base64').toString('hex')
+        const serverSig = Bitcoin.ECSignature.fromDER(Buffer.from(serverSignaturesData[i].sig, 'base64'))
+        const serverSigData = { pubKey: serverPubKey, sig: serverSig, hash: Bitcoin.Transaction.SIGHASH_NONE }
         arr.push(serverSigData)
       }
-      signatures.forEach(function (s) {
-        arr.push(s[i])
-      })
+      signatures.forEach(s => arr.push(s[i]))
       allSignatures.push(arr)
     }
     for (var i = 0; i < tx.ins.length; i++) {
-      var inputSig = self.recoveryPrepareInputSig(i, accountInfo, unspents[i], allSignatures[i])
+      const inputScript = self.recoveryPrepareMultiSigInputSig(i, accountInfo, unspents[i], allSignatures[i])
       //self.log("#" + i + " inputSig: " + Bitcoin.script.toASM(inputSig))
-      tx.setInputScript(i, inputSig)
+      tx.setInputScript(i, inputScript)
     }
     return tx
   })
