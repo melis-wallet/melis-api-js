@@ -322,15 +322,15 @@ CM.prototype.isProdNet = function () {
 // Coin dependent functions
 //
 
-CM.prototype.getCoinNetwork = function (coin) {
-  return Networks[coin]
-}
-
 function getDriver(coin) {
   const driver = Networks[coin]
   if (!driver)
     throw new MelisError("Unknown coin: " + coin)
   return driver
+}
+
+CM.prototype.getCoinDriver = function (coin) {
+  return getDriver(coin)
 }
 
 CM.prototype.coinAddressToBytes = function (coin, address) {

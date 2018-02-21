@@ -1,4 +1,5 @@
 const Bitcoin = require('bitcoinjs-lib')
+const bscript = Bitcoin.script
 const BitcoinMessage = require('bitcoinjs-message')
 const cashaddr = require('cashaddrjs')
 const C = require("./cm-constants")
@@ -101,8 +102,6 @@ function convertBech32CashAddressToLegacy(address, self) {
   if (C.LEGACY_BITCOIN_REGEX.test(address))
     return address
 
-  var prefix, type, hash
-
   if (CASH_BECH32_REGEX.test(address)) {
     // Good as it is
   } else if (CASH_BECH32_WITHOUT_PREFIX_LOWERCASE.test(address)) {
@@ -113,21 +112,46 @@ function convertBech32CashAddressToLegacy(address, self) {
     throw new MelisError("CmInvalidAddressException", "Unknown address format: " + address)
   }
 
+  let decoded
   try {
-    [prefix, type, hash] = cashaddr.decode(address)
+    decoded = cashaddr.decode(address)
   } catch (ex) {
     throw new MelisError("CmInvalidAddressException", "Unknown address format: " + address)
   }
 
-  if (prefix !== self.addressPrefix)
-    throw new MelisError("CmInvalidAddressException", "Invalid prefix in address -- expected: " + self.addressPrefix + " got: " + prefix)
+  if (decoded.prefix !== self.addressPrefix)
+    throw new MelisError("CmInvalidAddressException", "Invalid prefix in address -- expected: " + self.addressPrefix + " got: " + decoded.prefix)
 
-  if (type === 'P2PKH')
-    return Bitcoin.address.toBase58Check(hash, self.network.pubKeyHash)
-  else if (type === 'P2SH')
-    return Bitcoin.address.toBase58Check(hash, self.network.scriptHash)
+  if (decoded.type === 'P2PKH')
+    return Bitcoin.address.toBase58Check(Buffer.from(decoded.hash), self.network.pubKeyHash)
+  else if (decoded.type === 'P2SH')
+    return Bitcoin.address.toBase58Check(Buffer.from(decoded.hash), self.network.scriptHash)
   else
-    throw new MelisError("CmInvalidAddressException", "Unknown Bitcoin Cash type: " + type)
+    throw new MelisError("CmInvalidAddressException", "Unknown Bitcoin Cash type: " + decoded.type)
+
+}
+
+function convertLegacyAddressToBech32Cash(address, self) {
+  if (!C.LEGACY_BITCOIN_REGEX.test(address))
+    throw new MelisError("CmInvalidAddressException", "Invalid Bitcoin Cash legacy address: " + address)
+
+  let decode
+  try {
+    decode = Bitcoin.address.fromBase58Check(address, self.network)
+  } catch (e) { }
+
+  if (!decode)
+    throw new MelisError("CmInvalidAddressException", "Unable to decode Bitcoin Cash legacy address: " + address)
+
+  let type
+  if (decode.version === self.network.pubKeyHash)
+    type = 'P2PKH'
+  else if (decode.version === self.network.scriptHash)
+    type = 'P2SH'
+  else
+    throw new MelisError("CmInvalidAddressException", "Unexpected version: " + decode.version + " decoding Bitcoin Cash legacy address: " + address)
+
+  return cashaddr.encode(self.addressPrefix, type, decode.hash)
 }
 
 function toOutputScriptCash(address) {
@@ -289,7 +313,9 @@ const BCH_COMMON = {
   hashForSignature: hashForSignatureCash,
   toScriptSignature: toScriptSignatureCash,
   getAddressBytes: getAddressBytesFromBchAddress,
-  toOutputScript: toOutputScriptCash
+  toOutputScript: toOutputScriptCash,
+  toLegacyAddress: function (address) { return convertBech32CashAddressToLegacy(address, this) },
+  toCashAddress: function (address) { return convertLegacyAddressToBech32Cash(address, this) }
 }
 
 const BTC = Object.assign({ network: Bitcoin.networks.bitcoin }, BTC_COMMON, COMMON_METHODS)
