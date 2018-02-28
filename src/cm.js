@@ -1675,7 +1675,8 @@ CM.prototype.analyzeTx = function (state, options) {
       var isRecipient = false
       for (j = 0; j < recipients.length; j++) {
         var recipient = recipients[j]
-        if (recipient.pubId)
+        // When sending to Melis accounts we need to trust the server
+        if (recipient.pubId || recipient.validated)
           continue
         //if (toAddr === recipient.address) {
         if (toAddrBytes.equals(recipient.binaddr)) {
@@ -1845,6 +1846,14 @@ CM.prototype.getExpiringUnspents = function (account, pagingInfo) {
 CM.prototype.getUnspents = function (account, pagingInfo) {
   var pars = addPagingInfo({ pubId: account.pubId }, pagingInfo)
   return this.simpleRpcSlice(C.ACCOUNT_GET_UNSPENTS, pars)
+}
+
+// Deprecated, to be purged soon
+CM.prototype.getUnspentsAtBlock = function (account, blockNum) {
+  return this.rpc(C.ACCOUNT_LIMITS_GET, {
+    pubId: account.pubId,
+    data: blockNum
+  })
 }
 
 //

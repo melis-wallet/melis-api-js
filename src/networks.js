@@ -39,7 +39,7 @@ function isValidLegacyAddress(address) {
 function isValidBchAddress(address) {
   const self = this
   try {
-    getAddressBytesFromBchAddress_internal(address, self)
+    getAddressBytesFromBchAddress(address, self)
     return true
   } catch (ex) {
     return false
@@ -51,11 +51,7 @@ function getAddressBytesFromLegacyAddr(base58Address) {
   return hash
 }
 
-function getAddressBytesFromBchAddress(address) {
-  return getAddressBytesFromBchAddress_internal(address, this)
-}
-
-function getAddressBytesFromBchAddress_internal(address, self) {
+function getAddressBytesFromBchAddress(address, self) {
   if (C.LEGACY_BITCOIN_REGEX.test(address))
     return getAddressBytesFromLegacyAddr(address)
 
@@ -63,17 +59,17 @@ function getAddressBytesFromBchAddress_internal(address, self) {
     const { prefix, type, hash } = cashaddr.decode(address)
     if (prefix !== self.addressPrefix)
       throw new MelisError("CmInvalidAddressException", "Invalid network for Bitcoin Cash Address -- expected: " + self.addressPrefix + " got: " + prefix)
-    return hash
+    return Buffer.from(hash)
   }
 
   if (CASH_BECH32_WITHOUT_PREFIX_LOWERCASE.test(address)) {
     const { prefix, type, hash } = cashaddr.decode(self.addressPrefix + ":" + address)
-    return hash
+    return Buffer.from(hash)
   }
 
   if (CASH_BECH32_WITHOUT_PREFIX_UPPERCASE.test(address)) {
     const { prefix, type, hash } = cashaddr.decode(self.addressPrefix.toUpperCase() + ":" + address)
-    return hash
+    return Buffer.from(hash)
   }
 
   throw new MelisError("CmInvalidAddressException", "Unknown address format: " + address)
@@ -303,8 +299,8 @@ const BTC_COMMON = {
   isValidAddress: isValidLegacyAddress,
   hashForSignature: hashForSignatureLegacy,
   toScriptSignature: toScriptSignatureLegacy,
-  getAddressBytes: getAddressBytesFromLegacyAddr,
-  toOutputScript: toOutputScriptLegacy
+  toOutputScript: toOutputScriptLegacy,
+  getAddressBytes: getAddressBytesFromLegacyAddr
 }
 
 const BCH_COMMON = {
@@ -312,8 +308,8 @@ const BCH_COMMON = {
   isValidAddress: isValidBchAddress,
   hashForSignature: hashForSignatureCash,
   toScriptSignature: toScriptSignatureCash,
-  getAddressBytes: getAddressBytesFromBchAddress,
   toOutputScript: toOutputScriptCash,
+  getAddressBytes: function (address) { return getAddressBytesFromBchAddress(address, this) },
   toLegacyAddress: function (address) { return convertBech32CashAddressToLegacy(address, this) },
   toCashAddress: function (address) { return convertLegacyAddressToBech32Cash(address, this) }
 }
