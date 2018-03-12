@@ -368,7 +368,7 @@ CM.prototype.verifyBitcoinMessageSignature = function (coin, address, signature,
 CM.prototype.signMessageWithAA = function (account, aa, message) {
   if (account.type !== C.TYPE_PLAIN_HD)
     throw new MelisError('CmBadParamException', 'Only single signature accounts can sign messages')
-  var key = this.deriveMyHdAccount(account.num, aa.chain, aa.hdindex)
+  const key = this.deriveMyHdAccount(account.num, aa.chain, aa.hdindex)
   return this.signMessageWithKP(account.coin, key.keyPair, message)
 }
 
@@ -1587,7 +1587,9 @@ CM.prototype.isAddressOfAccount = function (account, accountAddress) {
       addr = this.calcP2SH(account.coin, info, accountAddress.chain, accountAddress.hdindex)
   }
   this.log("[isAddressesOfAccount] type: " + account.type + " accountAddress: " + accountAddress.address + " calcAddr: " + addr)
-  return accountAddress.address === addr
+  const aaBin = this.coinAddressToBytes(account.coin, accountAddress.address)
+  const addrBin = this.coinAddressToBytes(account.coin, addr)
+  return addrBin.equals(aaBin)
 }
 
 // updates account data if missing or incomplete
@@ -1850,7 +1852,7 @@ CM.prototype.getUnspents = function (account, pagingInfo) {
 
 // Deprecated, to be purged soon
 CM.prototype.getUnspentsAtBlock = function (account, blockNum) {
-  return this.rpc(C.ACCOUNT_LIMITS_GET, {
+  return this.rpc(C.PREFIX_ACCOUNT_METHODS + "getUnspentsAtBlock", {
     pubId: account.pubId,
     data: blockNum
   })
