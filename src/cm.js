@@ -1587,7 +1587,9 @@ CM.prototype.isAddressOfAccount = function (account, accountAddress) {
       addr = this.calcP2SH(account.coin, info, accountAddress.chain, accountAddress.hdindex)
   }
   this.log("[isAddressesOfAccount] type: " + account.type + " accountAddress: " + accountAddress.address + " calcAddr: " + addr)
-  return accountAddress.address === addr
+  const aaBin = this.coinAddressToBytes(account.coin, accountAddress.address)
+  const addrBin = this.coinAddressToBytes(account.coin, addr)
+  return addrBin.equals(aaBin)
 }
 
 // updates account data if missing or incomplete
