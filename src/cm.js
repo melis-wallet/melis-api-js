@@ -10,6 +10,7 @@ const isNode = require('detect-node')
 const randomBytes = require('randombytes')
 const sjcl = require('sjcl-all')
 const C = require("./cm-constants")
+const FeeApi = require("./fee-api")
 const BC_APIS = require("./blockchain-apis")
 const Networks = require("./networks")
 const MelisErrorModule = require("./melis-error")
@@ -63,14 +64,6 @@ function updateServerConfig(target, config) {
   target.cmConfiguration = config
   target.lastBlocks = config.topBlocks
   target.platform = config.platform
-  if (config.feeInfo && !target.fees.lastUpdated)
-    target.fees = {
-      detail: config.feeInfo,
-      fastestFee: config.feeInfo.fastestFee,
-      mediumFee: config.feeInfo.mediumFee,
-      maximumAcceptable: config.feeInfo.fastestFee * 3,
-      lastUpdated: new Date()
-    }
 }
 
 function emitEvent(target, event, params) {
@@ -270,13 +263,8 @@ function CM(config) {
   this.stompClient = null
   this.externalTxValidator = null
   this.minutesBetweenNetworkFeesUpdates = 60
-  this.fees = {
-    maximumAcceptable: C.MAXIMUM_FEE_PER_BYTE,
-    lastUpdated: null
-  }
-  this.feeProviders = [
-    this.getNetworkFees21, this.getNetworkFeesBitgo, this.getNetworkFeesBlockCypher
-  ]
+
+  this.feeApi = new FeeApi({ melis: this })
   initializePrivateFields(this)
 }
 
@@ -402,6 +390,20 @@ CM.prototype.hdNodeFromHexSeed = function (coin, seed) {
 
 CM.prototype.hdNodeFromBase58 = function (coin, xpub) {
   return getDriver(coin).hdNodeFromBase58(xpub)
+}
+
+CM.prototype.updateNetworkFees = function (coin) {
+  var self = this
+  if (!self.feeInfos)
+    self.feeInfos = {}
+  if (self.feeInfos[coin] && self.feeInfos[coin].lastUpdated) {
+    const msToLastUpdate = new Date() - self.feeInfos[coin].lastUpdated
+    if (msToLastUpdate > 1000 * 60 * 15)  // Update fees not more than once every 15 minutes
+      return self.feeInfos[coin]
+  }
+  return self.feeApi.getFeesByProvider(coin, 'melis')().then(res => {
+    return self.feeInfos[coin] = res
+  })
 }
 
 //
@@ -902,8 +904,8 @@ CM.prototype.pushTx = function (coin, hex) {
   return this.rpc(C.UTILS_PUSH_TX, { coin, hex })
 }
 
-CM.prototype.getFeeInfo = function () {
-  return this.rpc(C.UTILS_FEE_INFO)
+CM.prototype.getFeeInfo = function (coin) {
+  return this.rpc(C.UTILS_FEE_INFO + "/" + coin)
 }
 
 CM.prototype.ping = function () {
@@ -1702,9 +1704,12 @@ CM.prototype.analyzeTx = function (state, options) {
     for (i = 0; i < recipients.length; i++)
       if (!recipients[i].validated)
         error = "Missing recipient"
-  var extimatedTxSize = this.estimateTxSizeFromAccountInfo(this.peekAccountInfo(account), tx)
-  var maximumAcceptableFee = extimatedTxSize * this.fees.maximumAcceptable
-  var fees = amountInOur - amountToRecipients - amountToChange - amountToUnknown
+  const extimatedTxSize = this.estimateTxSizeFromAccountInfo(this.peekAccountInfo(account), tx)
+  const maxFeePerByte = (this.feeInfos && this.feeInfos[account.coin]) ?
+    this.feeInfos[account.coin].maximumAcceptable :
+    this.feeApi.getHardcodedMaxFeePerByte(account.coin).maximumAcceptable
+  const maximumAcceptableFee = extimatedTxSize * maxFeePerByte
+  const fees = amountInOur - amountToRecipients - amountToChange - amountToUnknown
   if (!error)
     if (fees > maximumAcceptableFee)
       error = "Fees too high"
@@ -1718,8 +1723,10 @@ CM.prototype.analyzeTx = function (state, options) {
       error = "Change address not validated"
   //    else if (amountToUnknown !== 0)
   //      error = "Destination address not validated"
-  this.log("[ANALYZE] amountInOur: " + amountInOur + " amountInOther: " + amountInOther + " amountToRecipients: " + amountToRecipients + " amountToChange: " + amountToChange + " amountToUnknown: " + amountToUnknown)
-  this.log("[ANALYZE] fees: " + fees + " maxAcceptableFees: " + maximumAcceptableFee + " ptx.fees: " + ptx.fees + " extimatedTxSize: " + extimatedTxSize + " error: " + error + " feeData: ", this.fees)
+  this.log("[ANALYZE] amountInOur: " + amountInOur + " amountInOther: " + amountInOther + " amountToRecipients: "
+    + amountToRecipients + " amountToChange: " + amountToChange + " amountToUnknown: " + amountToUnknown)
+  this.log("[ANALYZE] fees: " + fees + " maxAcceptableFees: " + maximumAcceptableFee + " ptx.fees: " + ptx.fees
+    + " extimatedTxSize: " + extimatedTxSize + " error: " + error + " maxFeePerByte: " + maxFeePerByte)
   return {
     validated: !error,
     error: error,
@@ -1764,7 +1771,7 @@ CM.prototype.payPrepare = function (account, recipients, options) {
     return self.ptxPrepare(account, recipients, options)
   }).then(function (res) {
     state.ptx = res.ptx
-    return self.updateNetworkFees()
+    return self.updateNetworkFees(state.account.coin)
   }).then(function () {
     state.summary = self.analyzeTx(state, options)
     if (options && options.autoSignIfValidated && state.summary.validated)
@@ -1914,14 +1921,12 @@ CM.prototype.tfaEnrollStart = function (params, tfa) {
     meta: params.meta,
     tfa: tfa
   }).then(function (res) {
-    //console.log("tfaEnrollStart: " + JSON.stringify(res))
     return res.tfaRes
   })
 }
 
 CM.prototype.tfaEnrollFinish = function (tfa) {
   return this.rpc(C.TFA_ENROLL_FINISH, { tfa: tfa }).then(function (res) {
-    //console.log("tfaEnrollFinish: " + JSON.stringify(res))
     return res.tfaRes
   })
 }
@@ -1932,7 +1937,6 @@ CM.prototype.tfaDeviceDelete = function (param, tfa) {
     value: param.value,
     tfa: tfa
   }).then(function (res) {
-    //console.log("tfaDeviceDelete: ", res)
     return res
   })
 }
@@ -1965,21 +1969,18 @@ CM.prototype.tfaAuthStart = function (params) {
     value: params.value,
     address: params.appId
   }).then(function (res) {
-    //console.log("tfaRequestCode: " + JSON.stringify(res))
     return res.tfaRes
   })
 }
 
 CM.prototype.tfaAuthValidate = function (tfa) {
   return this.rpc(C.TFA_AUTH_VALIDATE, { tfa: tfa }).then(function (res) {
-    //console.log("tfaAuthValidate: " + JSON.stringify(res))
     return res.tfaRes
   })
 }
 
 CM.prototype.tfaGetAccountConfig = function (account) {
   return this.rpc(C.TFA_GET_ACCOUNT_CONFIG, { pubId: account.pubId }).then(function (res) {
-    //console.log("res: " + JSON.stringify(res))
     return res.tfaConfig
   })
 }
@@ -1991,7 +1992,6 @@ CM.prototype.tfaSetAccountConfig = function (account, config, tfa) {
     data: config.policy,
     tfa: tfa
   }).then(function (res) {
-    //console.log("res: " + JSON.stringify(res))
     return res.tfaConfig
   })
 }
@@ -2029,7 +2029,6 @@ CM.prototype.abDelete = function (entry) {
 }
 
 CM.prototype.abGet = function (fromDate, pagingInfo) {
-  //console.log("[CM ab get] since: " + fromDate)
   var pars = addPagingInfo({ fromDate: fromDate }, pagingInfo)
   return this.simpleRpcSlice(C.AB_GET, pars)
 }
@@ -2085,115 +2084,6 @@ CM.prototype.sessionSetParams = function (params, tfa) {
   return this.rpc(C.SESSION_SET_PARAMS, par)
 }
 
-CM.prototype.getNetworkFees21 = function () {
-  var self = this
-  return fetch("https://bitcoinfees.21.co/api/v1/fees/recommended").then(function (res) {
-    if (res && res.status === 200)
-      return res.json()
-    else
-      return null
-  }).then(function (val) {
-    if (!val || !val.fastestFee)
-      return null
-    return {
-      provider: "21.co",
-      fastestFee: val.fastestFee,
-      mediumFee: val.halfHourFee,
-      slowFee: val.hourFee
-    }
-  }).catch(function (err) {
-    self.log("Error reading fees from 21.co:", err)
-    return Q(null)
-  })
-}
-
-CM.prototype.getNetworkFeesBlockCypher = function () {
-  var self = this
-  return fetch("https://api.blockcypher.com/v1/btc/main").then(function (res) {
-    if (res && res.status === 200)
-      return res.json()
-    else
-      return null
-  }).then(function (val) {
-    if (!val.high_fee_per_kb)
-      return null
-    return {
-      provider: "blockcypher.com",
-      fastestFee: Math.round(val.high_fee_per_kb / 1024),
-      mediumFee: Math.round(val.medium_fee_per_kb / 1024),
-      slowFee: Math.round(val.low_fee_per_kb / 1024)
-    }
-  }).catch(function (err) {
-    self.log("Error reading fees from blockcypher.com:", err)
-    return Q(null)
-  })
-}
-
-CM.prototype.getNetworkFeesBitgo = function () {
-  var self = this
-  return fetch("https://www.bitgo.com/api/v1/tx/fee?numBlocks=4").then(function (res) {
-    if (res && res.status === 200)
-      return res.json()
-    else
-      return null
-  }).then(function (val) {
-    if (!val.feePerKb)
-      return null
-    //    if (!val.feeByBlockTarget || !val.feeByBlockTarget[2] || !val.feeByBlockTarget[4] || !val.feeByBlockTarget[10])
-    //      return null
-    return {
-      provider: "bitgo.com",
-      fastestFee: Math.round(val.feePerKb / 1024),
-      mediumFee: Math.round((val.feePerKb * 0.8) / 1024),
-      slowFee: Math.round((val.feePerKb * 0.6) / 1024)
-    }
-  }).catch(function (err) {
-    self.log("Error reading fees from bitgo:", err)
-    return Q(null)
-  })
-}
-
-// TODO: https://shapeshift.io/btcfee
-
-CM.prototype.updateNetworkFeesFromExternalProviders = function () {
-  var self = this
-  var maxTries = this.feeProviders.length
-  function getFees(n) {
-    var provider = self.calcNextFeeProvider()
-    return provider().then(function (res) {
-      if (res)
-        return res
-      if (n >= maxTries)
-        return null
-      else
-        return getFees(n + 1)
-    })
-  }
-  return getFees(0).then(function (res) {
-    if (!res)
-      return null
-    return self.fees = {
-      detail: res,
-      fastestFee: res.fastestFee,
-      maximumAcceptable: res.fastestFee * 3,
-      lastUpdated: new Date()
-    }
-  })
-}
-
-CM.prototype.updateNetworkFees = function () {
-  var self = this
-  return this.getFeeInfo().then(function (res) {
-    return self.fees = {
-      detail: res.feeInfo,
-      fastestFee: res.feeInfo.fastestFee,
-      mediumFee: res.feeInfo.mediumFee,
-      maximumAcceptable: res.feeInfo.fastestFee * 3,
-      lastUpdated: new Date()
-    }
-  })
-}
-
 CM.prototype.verifyInstantViaRest = function (account, address, hash, n) {
   var node = this.deriveMyHdAccount(account.num, address.chain, address.hdindex)
   var data = this.prepareAddressSignature(account.coin, node.keyPair, C.MSG_PREFIX_INSTANT_VERIFY)
@@ -2207,13 +2097,6 @@ CM.prototype.verifyInstantViaRest = function (account, address, hash, n) {
 //
 // Non-promise returning methods
 //
-
-CM.prototype.calcNextFeeProvider = function () {
-  if (this.nextFeeProvider === undefined)
-    this.nextFeeProvider = simpleRandomInt(this.feeProviders.length)
-  this.nextFeeProvider = (this.nextFeeProvider + 1) % this.feeProviders.length
-  return this.feeProviders[this.nextFeeProvider]
-}
 
 CM.prototype.estimateInputSigSize = function (numAccounts, minSignatures) {
   var redeemScriptSize = numAccounts * 34 + 3

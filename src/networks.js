@@ -25,6 +25,17 @@ const CASH_BECH32_WITHOUT_PREFIX_UPPERCASE = new RegExp("[" + C.BECH32_CHARSET.t
 
 const SIGHASH_BITCOINCASHBIP143 = 0x40
 
+const litecoinTestnet = {
+  messagePrefix: '\x19Litecoin Signed Message:\n',
+  bip32: {
+    public: 0x043587CF, // 0x019da462,
+    private: 0x04358394 // 0x019d9cfe
+  },
+  pubKeyHash: 0x6F,
+  scriptHash: 0x3A,
+  wif: 0xEF
+}
+
 function isValidLegacyAddress(address) {
   if (!address)
     return false
@@ -322,9 +333,14 @@ const BCH = Object.assign({ network: Bitcoin.networks.bitcoin, addressPrefix: PR
 const TBCH = Object.assign({ network: Bitcoin.networks.testnet, addressPrefix: PREFIX_TESTNET }, BCH_COMMON, COMMON_METHODS)
 const RBCH = Object.assign({ network: Bitcoin.networks.testnet, addressPrefix: PREFIX_REGTEST }, BCH_COMMON, COMMON_METHODS)
 
+const LTC = Object.assign({ network: Bitcoin.networks.litecoin }, BTC_COMMON, COMMON_METHODS)
+const TLTC = Object.assign({ network: litecoinTestnet }, BTC_COMMON, COMMON_METHODS)
+const RLTC = Object.assign({ network: litecoinTestnet }, BTC_COMMON, COMMON_METHODS)
+
 const networks = {
   BTC, TBTC, RBTC,
-  BCH, TBCH, RBCH
+  BCH, TBCH, RBCH,
+  LTC, TLTC, RLTC,
 }
 
 module.exports = networks
