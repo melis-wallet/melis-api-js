@@ -1616,19 +1616,16 @@ CM.prototype.analyzeTx = function (state, options) {
     // For regression testing
     return { validated: false, error: options.forceValidationError }
   }
-  var account = state.account
-  var recipients = state.recipients || []
-  var ptx = state.ptx
-  var inputs = ptx.inputs
-  var changes = ptx.changes || []
-  var tx = this.decodeTxFromBuffer(Buffer.from(ptx.rawTx, 'hex'))
-  var amountInOur = 0
-  var amountInOther = 0
-  var amountToRecipients = 0
-  var amountToChange = 0
-  var amountToUnknown = 0
-  var error
-  var i, j
+  const account = state.account
+  const coin = account.coin
+  const recipients = state.recipients || []
+  const ptx = state.ptx
+  const inputs = ptx.inputs
+  const changes = ptx.changes || []
+  const tx = this.decodeTxFromBuffer(Buffer.from(ptx.rawTx, 'hex'))
+  let amountInOur = 0, amountInOther = 0, amountToRecipients = 0
+  let amountToChange = 0, amountToUnknown = 0
+  let error, i, j
   //this.log("ANALYZE", ptx)
 
   // TODO: This code must be updated when the transaction contains unknown inputs, like in CoinJoin
@@ -1656,17 +1653,17 @@ CM.prototype.analyzeTx = function (state, options) {
     if (recipients[j].pubId)
       recipients[j].validated = true
     else
-      recipients[j].binaddr = this.coinAddressToBytes(account.coin, recipients[j].address)
+      recipients[j].binaddr = this.coinAddressToBytes(coin, recipients[j].address)
   }
 
   // Mark our recipients to verify that none is left out
   for (i = 0; i < tx.outs.length; i++) {
     const output = tx.outs[i]
-    const toAddr = this.decodeAddressFromScript(account.coin, output.script)
-    const toAddrBytes = this.coinAddressToBytes(account.coin, toAddr)
+    const toAddr = this.decodeAddressFromScript(coin, output.script)
+    const toAddrBytes = this.coinAddressToBytes(coin, toAddr)
     var isChange = false
     for (j = 0; j < changes.length; j++) {
-      const changeBytes = this.coinAddressToBytes(account.coin, changes[j].aa.address)
+      const changeBytes = this.coinAddressToBytes(coin, changes[j].aa.address)
       //if (toAddr === changes[j].aa.address) {
       if (toAddrBytes.equals(changeBytes)) {
         amountToChange += output.value
@@ -1705,9 +1702,10 @@ CM.prototype.analyzeTx = function (state, options) {
       if (!recipients[i].validated)
         error = "Missing recipient"
   const extimatedTxSize = this.estimateTxSizeFromAccountInfo(this.peekAccountInfo(account), tx)
-  const maxFeePerByte = (this.feeInfos && this.feeInfos[account.coin]) ?
-    this.feeInfos[account.coin].maximumAcceptable :
-    this.feeApi.getHardcodedMaxFeePerByte(account.coin).maximumAcceptable
+  this.log("coin: " + coin + " feeInfos", this.feeInfos)
+  const maxFeePerByte = (this.feeInfos && this.feeInfos[coin]) ?
+    this.feeInfos[coin].maximumAcceptable :
+    this.feeApi.getHardcodedMaxFeePerByte(coin).maximumAcceptable
   const maximumAcceptableFee = extimatedTxSize * maxFeePerByte
   const fees = amountInOur - amountToRecipients - amountToChange - amountToUnknown
   if (!error)
