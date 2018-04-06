@@ -1702,16 +1702,10 @@ CM.prototype.analyzeTx = function (state, options) {
       if (!recipients[i].validated)
         error = "Missing recipient"
   const extimatedTxSize = this.estimateTxSizeFromAccountInfo(this.peekAccountInfo(account), tx)
-<<<<<<< HEAD
-  const maxFeePerByte = (this.feeInfos && this.feeInfos[account.coin]) ?
-    this.feeInfos[account.coin].maximumAcceptable :
-    this.feeApi.getHardcodedMaxFeePerByte(account.coin).maximumAcceptable
-=======
   this.log("coin: " + coin + " feeInfos", this.feeInfos)
   const maxFeePerByte = (this.feeInfos && this.feeInfos[coin]) ?
     this.feeInfos[coin].maximumAcceptable :
     this.feeApi.getHardcodedMaxFeePerByte(coin).maximumAcceptable
->>>>>>> 288ebfc6365b753d25fc0f4e1f64488479adfd4d
   const maximumAcceptableFee = extimatedTxSize * maxFeePerByte
   const fees = amountInOur - amountToRecipients - amountToChange - amountToUnknown
   if (!error)
