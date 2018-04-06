@@ -116,28 +116,77 @@ function prepareMelisFees(feeInfo) {
   }
 }
 
-const feeProviders = {
-  'BTC': {
-    'hardcoded': () => Q(HARDCODED_DEFAULT_FEES),
-    'melis': () => getNetworkFeesMelis(C.COIN_PROD_BTC),
-    '21.co': getNetworkFees21,
-    'blockcypher': getNetworkFeesBlockCypher,
-    'bitgo': getNetworkFeesBitgo
-  },
-  'BCH': {
-    'hardcoded': () => Q(HARDCODED_BCH_FEES),
-    'melis': () => getNetworkFeesMelis(C.COIN_PROD_BCH),
-    'blockcypher': () => getNetworkFeesBlockCypher(C.COIN_PROD_BCH)
-  },
-  'LTC': {
-    'hardcoded': () => Q(HARDCODED_LTC_FEES),
-    'melis': () => getNetworkFeesMelis(C.COIN_PROD_LTC),
-  },
-  'GRS': {
-    'hardcoded': () => Q(HARDCODED_BCH_FEES),
-    'melis': () => getNetworkFeesMelis(C.COIN_PROD_GRS),
-  }
+const feeProviders = {}
+
+// Bitcoin
+feeProviders[C.COIN_PROD_BTC] = {
+  'hardcoded': () => Q(HARDCODED_DEFAULT_FEES),
+  'melis': () => getNetworkFeesMelis(C.COIN_PROD_BTC),
+  '21.co': getNetworkFees21,
+  'blockcypher': getNetworkFeesBlockCypher,
+  'bitgo': getNetworkFeesBitgo
 }
+feeProviders[C.COIN_TESTNET_BTC] = {
+  'hardcoded': () => Q(HARDCODED_BCH_FEES),
+  'melis': () => getNetworkFeesMelis(C.COIN_TESTNET_BTC)
+}
+feeProviders[C.COIN_REGTEST_BTC] = {
+  'hardcoded': () => Q(HARDCODED_BCH_FEES),
+  'melis': () => getNetworkFeesMelis(C.COIN_REGTEST_BTC)
+}
+
+// Bitcoin Cash
+feeProviders[C.COIN_PROD_BCH] = {
+  'hardcoded': () => Q(HARDCODED_BCH_FEES),
+  'melis': () => getNetworkFeesMelis(C.COIN_PROD_BCH),
+  'blockcypher': () => getNetworkFeesBlockCypher(C.COIN_PROD_BCH)
+}
+feeProviders[C.COIN_TESTNET_BCH] = {
+  'hardcoded': () => Q(HARDCODED_BCH_FEES),
+  'melis': () => getNetworkFeesMelis(C.COIN_TESTNET_BCH)
+}
+feeProviders[C.COIN_REGTEST_BCH] = {
+  'hardcoded': () => Q(HARDCODED_BCH_FEES),
+  'melis': () => getNetworkFeesMelis(C.COIN_REGTEST_BCH)
+}
+
+// Litecoin
+feeProviders[C.COIN_PROD_LTC] = {
+  'hardcoded': () => Q(HARDCODED_LTC_FEES),
+  'melis': () => getNetworkFeesMelis(C.COIN_PROD_LTC)
+}
+feeProviders[C.COIN_TESTNET_LTC] = {
+  'hardcoded': () => Q(HARDCODED_LTC_FEES),
+  'melis': () => getNetworkFeesMelis(C.COIN_TESTNET_LTC)
+}
+feeProviders[C.COIN_REGTEST_LTC] = {
+  'hardcoded': () => Q(HARDCODED_LTC_FEES),
+  'melis': () => getNetworkFeesMelis(C.COIN_REGTEST_LTC)
+}
+
+// Groestlcoin
+feeProviders[C.COIN_PROD_GRS] = {
+  'hardcoded': () => Q(HARDCODED_BCH_FEES),
+  'melis': () => getNetworkFeesMelis(C.COIN_PROD_GRS)
+}
+feeProviders[C.COIN_TESTNET_GRS] = {
+  'hardcoded': () => Q(HARDCODED_BCH_FEES),
+  'melis': () => getNetworkFeesMelis(C.COIN_TESTNET_GRS)
+}
+feeProviders[C.COIN_REGTEST_GRS] = {
+  'hardcoded': () => Q(HARDCODED_BCH_FEES),
+  'melis': () => getNetworkFeesMelis(C.COIN_REGTEST_GRS)
+}
+
+// const ALL_COINS = [
+//   C.COIN_TESTNET_BTC, C.COIN_REGTEST_BTC, C.COIN_PROD_BTC,
+//   C.COIN_TESTNET_BCH, C.COIN_REGTEST_BCH, C.COIN_PROD_BCH,
+//   C.COIN_TESTNET_LTC, C.COIN_REGTEST_LTC, C.COIN_PROD_LTC,
+//   C.COIN_TESTNET_GRS, C.COIN_REGTEST_GRS, C.COIN_PROD_GRS,
+// ]
+// ALL_COINS.forEach(coin => {
+//   feeProviders[coin]['melis'] = () => getNetworkFeesMelis(coin)
+// })
 
 // var nextFeeProvider
 // feeProviders = [
@@ -225,8 +274,6 @@ FeeInfo.prototype.getProviderNames = function (coin) {
 }
 
 FeeInfo.prototype.getFeesByProvider = function (coin, providerName) {
-  // if (!coin || !providerName)
-  //   throw new MelisError("CmBadParamException", "Missing coin or provider name")
   const providers = feeProviders[coin]
   if (!providers)
     return () => Q(this.getHardcodedFeePerByte(coin))

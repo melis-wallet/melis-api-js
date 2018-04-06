@@ -1,3 +1,8 @@
+// TESTNET FAUCETS:
+// BCH: https://testnet.manu.backend.hamburg/bitcoin-cash-faucet
+// BTC: https://testnet.manu.backend.hamburg/faucet
+// LTC: http://testnet.litecointools.com/
+
 var CM = require('../src/cm')
 var C = CM.C
 var cm = new CM({apiDiscoveryUrl: C.MELIS_TEST_DISCOVER})

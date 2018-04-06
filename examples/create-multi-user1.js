@@ -1,27 +1,41 @@
-var CM = require('../src/cm')
-var C = CM.C
-var cm = new CM({apiDiscoveryUrl: C.MELIS_TEST_DISCOVER})
-var seed = cm.random32HexBytes()
+const Melis = require('../src/cm')
+const C = Melis.C
+const melis = new Melis({ apiDiscoveryUrl: C.MELIS_TEST_DISCOVER })
+const seed = melis.random32HexBytes()
 
-cm.on(C.EVENT_JOINED, res => {
-  console.log("Cosigner joined: " + res.activationCode.pubId + ", the account is ready!")
-  cm.disconnect()
+const coin = C.COIN_TEST_BTC, returnAddress = "2N8hwP1WmJrFF5QWABn38y63uYLhnJYJYTF"
+
+let account
+
+melis.on(C.EVENT_JOINED, event => {
+  console.log("Cosigner joined: " + event.activationCode.pubId + ", the account is ready!", event)
+  return melis.getUnusedAddress(account).then(addr => {
+    console.log("Receiving address: ", addr)
+  })
 })
 
-cm.log = function () {} // Disable logs
+melis.on(C.EVENT_ACCOUNT_UPDATED, event => {
+  console.log("Account event: ", event)
+})
 
-cm.connect().then((config) => {
-  console.log("Connected to server. Blockchain height: " + config.topBlock.height)
-  return cm.walletRegister(seed)
+melis.log = function () { } // Disable logs
+
+melis.connect().then((config) => {
+  const topBlock = config.topBlocks[coin]
+  console.log("Connected to server. Blockchain height for coin " + coin + ": " + topBlock.height + " hash: " + topBlock.hash)
+  return melis.walletRegister(seed)
 }).then(wallet => {
-  console.log("Wallet opened with seed: " + seed)
-  return cm.accountCreate({
+  console.log("Wallet opened with master seed: " + seed)
+  return melis.accountCreate({
+    coin,
     type: C.TYPE_MULTISIG_MANDATORY_SERVER,
-    cosigners: [{name: 'Frank'}],
-    minSignatures: 1}
-  )
+    cosigners: [{ name: 'Frank' }],
+    minSignatures: 1
+  })
 }).then(res => {
-  var cosigners = res.accountInfo.cosigners
+  console.log("Account creation data:", res)
+  account = res.account
+  const cosigners = res.accountInfo.cosigners
   let joinCode
   cosigners.forEach(info => {
     if (info.name === 'Frank')
