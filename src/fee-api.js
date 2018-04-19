@@ -126,9 +126,9 @@ feeProviders[C.COIN_PROD_BTC] = {
   'blockcypher': getNetworkFeesBlockCypher,
   'bitgo': getNetworkFeesBitgo
 }
-feeProviders[C.COIN_TESTNET_BTC] = {
+feeProviders[C.COIN_TEST_BTC] = {
   'hardcoded': () => Q(HARDCODED_BCH_FEES),
-  'melis': () => getNetworkFeesMelis(C.COIN_TESTNET_BTC)
+  'melis': () => getNetworkFeesMelis(C.COIN_TEST_BTC)
 }
 feeProviders[C.COIN_REGTEST_BTC] = {
   'hardcoded': () => Q(HARDCODED_BCH_FEES),
@@ -141,9 +141,9 @@ feeProviders[C.COIN_PROD_BCH] = {
   'melis': () => getNetworkFeesMelis(C.COIN_PROD_BCH),
   'blockcypher': () => getNetworkFeesBlockCypher(C.COIN_PROD_BCH)
 }
-feeProviders[C.COIN_TESTNET_BCH] = {
+feeProviders[C.COIN_TEST_BCH] = {
   'hardcoded': () => Q(HARDCODED_BCH_FEES),
-  'melis': () => getNetworkFeesMelis(C.COIN_TESTNET_BCH)
+  'melis': () => getNetworkFeesMelis(C.COIN_TEST_BCH)
 }
 feeProviders[C.COIN_REGTEST_BCH] = {
   'hardcoded': () => Q(HARDCODED_BCH_FEES),
@@ -155,9 +155,9 @@ feeProviders[C.COIN_PROD_LTC] = {
   'hardcoded': () => Q(HARDCODED_LTC_FEES),
   'melis': () => getNetworkFeesMelis(C.COIN_PROD_LTC)
 }
-feeProviders[C.COIN_TESTNET_LTC] = {
+feeProviders[C.COIN_TEST_LTC] = {
   'hardcoded': () => Q(HARDCODED_LTC_FEES),
-  'melis': () => getNetworkFeesMelis(C.COIN_TESTNET_LTC)
+  'melis': () => getNetworkFeesMelis(C.COIN_TEST_LTC)
 }
 feeProviders[C.COIN_REGTEST_LTC] = {
   'hardcoded': () => Q(HARDCODED_LTC_FEES),
@@ -169,24 +169,14 @@ feeProviders[C.COIN_PROD_GRS] = {
   'hardcoded': () => Q(HARDCODED_BCH_FEES),
   'melis': () => getNetworkFeesMelis(C.COIN_PROD_GRS)
 }
-feeProviders[C.COIN_TESTNET_GRS] = {
+feeProviders[C.COIN_TEST_GRS] = {
   'hardcoded': () => Q(HARDCODED_BCH_FEES),
-  'melis': () => getNetworkFeesMelis(C.COIN_TESTNET_GRS)
+  'melis': () => getNetworkFeesMelis(C.COIN_TEST_GRS)
 }
 feeProviders[C.COIN_REGTEST_GRS] = {
   'hardcoded': () => Q(HARDCODED_BCH_FEES),
   'melis': () => getNetworkFeesMelis(C.COIN_REGTEST_GRS)
 }
-
-// const ALL_COINS = [
-//   C.COIN_TESTNET_BTC, C.COIN_REGTEST_BTC, C.COIN_PROD_BTC,
-//   C.COIN_TESTNET_BCH, C.COIN_REGTEST_BCH, C.COIN_PROD_BCH,
-//   C.COIN_TESTNET_LTC, C.COIN_REGTEST_LTC, C.COIN_PROD_LTC,
-//   C.COIN_TESTNET_GRS, C.COIN_REGTEST_GRS, C.COIN_PROD_GRS,
-// ]
-// ALL_COINS.forEach(coin => {
-//   feeProviders[coin]['melis'] = () => getNetworkFeesMelis(coin)
-// })
 
 // var nextFeeProvider
 // feeProviders = [
@@ -251,13 +241,13 @@ function FeeInfo(config) {
 FeeInfo.prototype.getHardcodedFeePerByte = function (coin) {
   switch (coin) {
     case C.COIN_PROD_BCH:
-    case C.COIN_TESTNET_BCH:
-    case C.COIN_TESTNET_BTC:
+    case C.COIN_TEST_BCH:
     case C.COIN_REGTEST_BCH:
+    case C.COIN_TEST_BTC:
     case C.COIN_REGTEST_BTC:
       return HARDCODED_BCH_FEES
     case C.COIN_PROD_LTC:
-    case C.COIN_TESTNET_LTC:
+    case C.COIN_TEST_LTC:
     case C.COIN_REGTEST_LTC:
       return HARDCODED_LTC_FEES
     case C.COIN_PROD_BTC:

@@ -317,6 +317,10 @@ function getDriver(coin) {
   return driver
 }
 
+CM.prototype.getDefaultPlatformCoin = function (coin) {
+  return this.isProdNet() ? C.COIN_PROD_BTC : C.COIN_TEST_BTC
+}
+
 CM.prototype.getCoinDriver = function (coin) {
   return getDriver(coin)
 }
@@ -356,7 +360,7 @@ CM.prototype.verifyBitcoinMessageSignature = function (coin, address, signature,
 CM.prototype.signMessageWithAA = function (account, aa, message) {
   if (account.type !== C.TYPE_PLAIN_HD)
     throw new MelisError('CmBadParamException', 'Only single signature accounts can sign messages')
-  const key = this.deriveMyHdAccount(account.num, aa.chain, aa.hdindex)
+  const key = this.deriveMyHdAccount(account.num, aa.chain, aa.hdindex, account.coin)
   return this.signMessageWithKP(account.coin, key.keyPair, message)
 }
 
@@ -384,11 +388,15 @@ CM.prototype.derivePubKeys = function (coin, xpubs, chain, hdIndex) {
   return getDriver(coin).derivePubKeys(xpubs, chain, hdIndex)
 }
 
-CM.prototype.hdNodeFromHexSeed = function (coin, seed) {
+CM.prototype.hdNodeFromHexSeed = function (seed, coin) {
+  if (!coin)
+    coin = this.getDefaultPlatformCoin()
   return getDriver(coin).hdNodeFromHexSeed(seed)
 }
 
-CM.prototype.hdNodeFromBase58 = function (coin, xpub) {
+CM.prototype.hdNodeFromBase58 = function (xpub, coin) {
+  if (!coin)
+    coin = this.getDefaultPlatformCoin()
   return getDriver(coin).hdNodeFromBase58(xpub)
 }
 
@@ -401,17 +409,10 @@ CM.prototype.updateNetworkFees = function (coin) {
     if (msToLastUpdate > 1000 * 60 * 15)  // Update fees not more than once every 15 minutes
       return self.feeInfos[coin]
   }
-  return self.feeApi.getFeesByProvider(coin, 'melis')().then(res => {
+  const provider = coin.endsWith(C.COIN_PROD_BTC) ? 'melis' : 'hardcoded'
+  return self.feeApi.getFeesByProvider(coin, provider)().then(res => {
     return self.feeInfos[coin] = res
   })
-}
-
-//
-//
-//
-
-CM.prototype.decodeNetworkName = function (networkName) {
-  return networkName === "main" ? Bitcoin.networks.bitcoin : Bitcoin.networks.testnet
 }
 
 CM.prototype.setAutoReconnectDelay = function (seconds) {
@@ -465,10 +466,10 @@ CM.prototype.parseBIP32Path = function (path, radix) {
 
 CM.prototype.getLoginPath = function () {
   const product = 31337 // CM
-  const network = this.isProdNet() ? 0 : 1 // Use another path for I2P/TOR?
+  const path = this.isProdNet() ? 0 : 1 // Use another path for I2P/TOR?
   return [
     ((0x80000000) | product) >>> 0,
-    ((0x80000000) | network) >>> 0
+    ((0x80000000) | path) >>> 0
   ]
 }
 
@@ -489,20 +490,23 @@ CM.prototype.deriveKeyFromPath = function (hdnode, path) {
 }
 
 // BIP44 standard derivation
-CM.prototype.deriveMyHdAccount = function (accountNum, chain, index) {
-  return this.deriveHdAccount(this.hdWallet, accountNum, chain, index)
+CM.prototype.deriveMyHdAccount = function (accountNum, chain, index, coin) {
+  return this.deriveHdAccount(this.hdWallet, accountNum, chain, index, coin)
 }
-CM.prototype.deriveHdAccount = function (hd, accountNum, chain, index) {
+CM.prototype.deriveHdAccount = function (hd, accountNum, chain, index, coin) {
+  const subTree = this.isProdNet() ? 0 : 1
   var key = hd.deriveHardened(44)
-  key = key.deriveHardened(this.isProdNet() ? 0 : 1)
+  key = key.deriveHardened(subTree)
   key = key.deriveHardened(accountNum)
+  if (coin)
+    getDriver(coin).fixKeyNetworkParameters(key)
   if (chain === undefined || chain === null || index === undefined || index === null)
     return key
   return key.derive(chain).derive(index)
 }
 
 CM.prototype.accountAddressToWIF = function (account, aa) {
-  const key = this.deriveMyHdAccount(account.num, aa.chain, aa.hdindex)
+  const key = this.deriveMyHdAccount(account.num, aa.chain, aa.hdindex, account.coin)
   return key.keyPair.toWIF()
 }
 
@@ -1036,7 +1040,8 @@ CM.prototype.walletOpen = function (seed, params) {
   return this.getWalletChallenge().then(function (res) {
     var challengeHex = res.challenge
     //self.log("[CM] walletOpen challenge: " + challengeHex + " seed: " + seed + " isProduction:"+self.isProdNet())
-    var hd = self.hdNodeFromHexSeed(self.isProdNet() ? C.COIN_PROD_BTC : C.COIN_TEST_BTC, seed)
+    //var hd = self.hdNodeFromHexSeed(self.isProdNet() ? C.COIN_PROD_BTC : C.COIN_TEST_BTC, seed)
+    var hd = self.hdNodeFromHexSeed(seed)
     // Keep the public key for ourselves
     var loginKey = self.deriveKeyFromPath(hd, self.getLoginPath())
     var buf = Buffer.from(challengeHex, 'hex')
@@ -1051,7 +1056,7 @@ CM.prototype.walletOpen = function (seed, params) {
       usePinAsTfa: params.usePinAsTfa
     }).then(function (res) {
       var wallet = res.wallet
-      self.log("[CM] walletOpen pubKey:" + wallet.pubKey + " #accounts: " + Object.keys(wallet.accounts).length)
+      self.log("[CM] walletOpen pubKey:" + wallet.pubKey + self.isProdNet() + " #accounts: " + Object.keys(wallet.accounts).length + " isProdNet: ")
       walletOpen(self, hd, wallet)
       self.lastOpenParams = { seed: seed, sessionName: params.sessionName, deviceId: params.deviceId }
       return wallet
@@ -1066,7 +1071,8 @@ CM.prototype.walletRegister = function (seed, params) {
   var loginKey
   var self = this
   try {
-    var hd = self.hdNodeFromHexSeed(self.isProdNet() ? C.COIN_PROD_BTC : C.COIN_TEST_BTC, seed)
+    //var hd = self.hdNodeFromHexSeed(self.isProdNet() ? C.COIN_PROD_BTC : C.COIN_TEST_BTC, seed)
+    var hd = self.hdNodeFromHexSeed(seed)
     loginKey = self.deriveKeyFromPath(hd, self.getLoginPath())
     //self.log('REGISTER hd: ', hd, ' loginKey: ', loginKey)
   } catch (error) {
@@ -1435,7 +1441,7 @@ CM.prototype.ptxCancel = function (ptx) {
 
 CM.prototype.ptxSignFields = function (account, ptx) {
   var num1 = simpleRandomInt(C.MAX_SUBPATH), num2 = simpleRandomInt(C.MAX_SUBPATH)
-  var node = this.deriveMyHdAccount(account.num, num1, num2)
+  var node = this.deriveMyHdAccount(account.num, num1, num2, account.coin)
   var sig = this.signMessageWithKP(account.coin, node.keyPair, ptx.rawTx)
   //return { keyPath: [num1, num2], base64Sig: sig.toString('base64')}
   //    var verified = self.verifyMessage(node.keyPair.getAddress(), sig, msg)
@@ -1447,8 +1453,6 @@ CM.prototype.ptxSignFields = function (account, ptx) {
     num1: num1,
     num2: num2,
     signatures: [sig]
-  }).then(function (res) {
-    return res
   })
 }
 
@@ -1477,7 +1481,7 @@ CM.prototype.ptxVerifyFieldsSignature = function (account, ptx) {
     var keyMessage = ptx.meta.ownerSig
     self.log("ptx keyMessage:", keyMessage)
     var keyPath = keyMessage.keyPath
-    const hd = self.hdNodeFromBase58(account.coin, xpub)
+    const hd = self.hdNodeFromBase58(xpub, account.coin)
     var node = hd.derive(keyPath[0]).derive(keyPath[1])
     var address = node.keyPair.getAddress()
     var ptxSigVerified = false
@@ -1519,7 +1523,7 @@ CM.prototype.signaturesPrepare = function (params) {
     if (!inputInfo)
       throwUnexpectedEx("Internal error: can't find info data for tx input #" + i)
     const accountAddress = inputInfo.aa
-    const key = self.deriveHdAccount(hd, accountNum, accountAddress.chain, accountAddress.hdindex)
+    const key = self.deriveHdAccount(hd, accountNum, accountAddress.chain, accountAddress.hdindex, coin)
     let redeemScript
     if (accountAddress.redeemScript)
       redeemScript = Buffer.from(accountAddress.redeemScript, "hex")
@@ -1581,7 +1585,7 @@ CM.prototype.isAddressOfAccount = function (account, accountAddress) {
   var addr
   switch (account.type) {
     case C.TYPE_PLAIN_HD:
-      var key = this.deriveMyHdAccount(account.num, accountAddress.chain, accountAddress.hdindex)
+      var key = this.deriveMyHdAccount(account.num, accountAddress.chain, accountAddress.hdindex, account.coin)
       addr = key.getAddress()
       break
     default:
@@ -2083,7 +2087,7 @@ CM.prototype.sessionSetParams = function (params, tfa) {
 }
 
 CM.prototype.verifyInstantViaRest = function (account, address, hash, n) {
-  var node = this.deriveMyHdAccount(account.num, address.chain, address.hdindex)
+  var node = this.deriveMyHdAccount(account.num, address.chain, address.hdindex, account.coin)
   var data = this.prepareAddressSignature(account.coin, node.keyPair, C.MSG_PREFIX_INSTANT_VERIFY)
   return fetch(this.peekRestPrefix() + "/verifyInstantTx?txHash=" + hash + "&outputNum=" + n + "&sig=" + encodeURIComponent(data.base64Sig), {
     headers: { "user-agent": C.MELIS_USER_AGENT }
@@ -2288,7 +2292,8 @@ CM.prototype.recoveryPrepareSimpleTx = function (params) {
 
   return self.signaturesPrepare({
     coin,
-    hd: self.hdNodeFromHexSeed(coin, seed),
+    // hd: self.hdNodeFromHexSeed(coin, seed),
+    hd: self.hdNodeFromHexSeed(seed),
     accountNum: accountInfo.accountNum,
     rawTx: tx.toHex(),
     inputs: unspents
@@ -2304,22 +2309,24 @@ CM.prototype.recoveryPrepareSimpleTx = function (params) {
 }
 
 CM.prototype.recoveryPrepareMultiSigTx = function (accountInfo, tx, unspents, seeds, serverSignaturesData) {
-  this.log("[recoveryPrepareMultiSigTx] unspents: ", unspents)
+  const self = this
+  const coin = accountInfo.coin
+  const cosigners = accountInfo.cosigners
+  this.log("[recoveryPrepareMultiSigTx] coin: " + coin + " unspents: ", unspents)
   this.log("[recoveryPrepareMultiSigTx] server signature data: ", serverSignaturesData)
+
   if (accountInfo.minSignatures !== seeds.length)
     throw new MelisError('CmBadParamException', '#minSignatures != #seeds')
 
-  const self = this
-  const cosigners = accountInfo.cosigners
   const hexTx = tx.toHex()
   const signatures = []
 
   // Discover which account is owned by which seed
   const accountsData = []
   seeds.forEach(seed => {
-    var walletHd = self.hdNodeFromHexSeed(accountInfo.coin, seed)
+    var walletHd = self.hdNodeFromHexSeed(seed)
     var cosigner = cosigners.find(function (cosigner) {
-      var accountHd = self.deriveHdAccount(walletHd, cosigner.accountNum)
+      var accountHd = self.deriveHdAccount(walletHd, cosigner.accountNum, undefined, undefined, coin)
       return accountHd.neutered().toBase58() === cosigner.xpub
     })
     if (!cosigner)
@@ -2330,8 +2337,8 @@ CM.prototype.recoveryPrepareMultiSigTx = function (accountInfo, tx, unspents, se
   const f = function (i) {
     const data = accountsData[i]
     return self.signaturesPrepare({
-      coin: accountInfo.coin,
-      hd: self.hdNodeFromHexSeed(accountInfo.coin, data.seed),
+      coin,
+      hd: self.hdNodeFromHexSeed(data.seed),
       accountNum: data.accountNum,
       rawTx: hexTx,
       inputs: unspents
