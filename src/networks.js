@@ -291,6 +291,10 @@ function hdNodeFromBase58(xpub) {
   return Bitcoin.HDNode.fromBase58(xpub, this.network)
 }
 
+function fixKeyNetworkParameters(key) {
+  key.keyPair.network = this.network
+}
+
 //
 //
 //
@@ -299,7 +303,7 @@ const COMMON_METHODS = {
   wifToEcPair, signMessageWithKP, verifyBitcoinMessageSignature,
   decodeAddressFromScript, addressFromPubKey, extractPubKeyFromOutputScript,
   prepareAddressSignature, derivePubKeys, calcP2SH,
-  hdNodeFromHexSeed, hdNodeFromBase58
+  hdNodeFromHexSeed, hdNodeFromBase58, fixKeyNetworkParameters
 }
 
 const BCH_CONSTS = {
