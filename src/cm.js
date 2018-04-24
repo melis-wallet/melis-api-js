@@ -1192,35 +1192,44 @@ CM.prototype.accountCreate = function (params) {
     numPromise = this.getFreeAccountNum()
   else
     numPromise = Q(params.accountNum)
-  var self = this
-  return numPromise.then(function (accountNum) {
+  const self = this
+  return numPromise.then(accountNum => {
+    this.log("[CM] accountCreate coin: " + params.coin + " accountNum: " + params.accountNum)
     params.accountNum = accountNum
-    var accountHd = self.deriveMyHdAccount(accountNum)
+    var accountHd = self.deriveMyHdAccount(accountNum, undefined, undefined, params.coin)
     params.xpub = accountHd.neutered().toBase58()
     return self.rpc(C.ACCOUNT_REGISTER, params)
-  }).then(function (res) {
+  }).then(res => {
     updateAccount(self, res.account, res.balance, res.accountInfo)
     return res
   })
 }
 
 CM.prototype.accountJoin = function (params) {
+  const self = this
   this.log("[CM] joinWallet params:", params)
-  var numPromise
+  var numPromise = Q(params.accountNum)
   if (params.accountNum === undefined)
-    numPromise = this.getFreeAccountNum()
-  else
-    numPromise = Q(params.accountNum)
-  var self = this
-  return numPromise.then(function (accountNum) {
-    var accountHd = self.deriveMyHdAccount(accountNum)
+    numPromise = self.getFreeAccountNum().then(num => {
+      params.accountNum = num
+    })
+
+  var coinPromise = Q(params.coin)
+  if (!params.coin)
+    coinPromise = this.joinCodeGetInfo(params.code).then(res => {
+      params.coin = res.info.coin
+    })
+
+  return numPromise.then(coinPromise).then(() => {
+    this.log("[CM] joinWallet coin: " + params.coin + " accountNum: " + params.accountNum)
+    const accountHd = self.deriveMyHdAccount(params.accountNum, undefined, undefined, params.coin)
     return self.rpc(C.ACCOUNT_JOIN, {
       code: params.code,
-      accountNum: accountNum,
+      accountNum: params.accountNum,
       xpub: accountHd.neutered().toBase58(),
       meta: params.meta
     })
-  }).then(function (res) {
+  }).then(res => {
     updateAccount(self, res.account, res.balance, res.accountInfo)
     return res
   })
