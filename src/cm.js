@@ -662,11 +662,11 @@ function retryConnect(self, config, errorMessage) {
 }
 
 CM.prototype.connect = function (config) {
+  const self = this
   if (this.connecting)
     return Q()
   this.paused = false
   this.connecting = true
-  var self = this
   if (this.autoReconnectFunc) {
     clearTimeout(this.autoReconnectFunc)
     this.autoReconnectFunc = null
@@ -675,6 +675,7 @@ CM.prototype.connect = function (config) {
   if (this.stompClient !== null) {
     if (this.connected)
       return Q(self.cmConfiguration)
+    this.stompClient.disconnect()
     this.stompClient = null
   }
 
@@ -683,15 +684,18 @@ CM.prototype.connect = function (config) {
     Q(fetchStompEndpoint(self, config)).then(function (discovered) {
       return discovered.stompEndpoint
     })
-  return discoverer.then(function (stompEndpoint) {
+  return discoverer.then(stompEndpoint => {
     return self.connect_internal(stompEndpoint, config)
-  }).catch(function (err) {
+  }).catch(err => {
     self.log("Discover err:", err)
     var errMsg = 'Unable to connect: ' + err.ex + " : " + err.msg
     var callback = config ? config.connectProgressCallback : null
     if (callback && typeof callback === 'function')
       callback({ errMsg: errMsg, err: err })
-    return retryConnect(self, config, errMsg)
+    if (config && config.autoRetry)
+      return retryConnect(self, config, errMsg)
+    else
+      return Q.reject(err)
   })
 }
 
