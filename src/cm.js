@@ -679,7 +679,7 @@ CM.prototype.connect = function (config) {
     this.stompClient = null
   }
 
-  var discoverer = self.stompEndpoint ?
+  const discoverer = self.stompEndpoint ?
     Q(self.stompEndpoint) :
     Q(fetchStompEndpoint(self, config)).then(function (discovered) {
       return discovered.stompEndpoint
@@ -688,14 +688,16 @@ CM.prototype.connect = function (config) {
     return self.connect_internal(stompEndpoint, config)
   }).catch(err => {
     self.log("Discover err:", err)
-    var errMsg = 'Unable to connect: ' + err.ex + " : " + err.msg
-    var callback = config ? config.connectProgressCallback : null
+    const errMsg = 'Unable to connect: ' + err.ex + " : " + err.msg
+    const callback = config ? config.connectProgressCallback : null
     if (callback && typeof callback === 'function')
       callback({ errMsg: errMsg, err: err })
     if (config && config.autoRetry)
       return retryConnect(self, config, errMsg)
-    else
+    else {
+      self.connecting = false
       return Q.reject(err)
+    }
   })
 }
 
