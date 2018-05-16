@@ -152,6 +152,7 @@ function initializePrivateFields(target) {
   target.connected = false
   target.connecting = false
   target.paused = false
+  target.stompClient = null
 }
 
 function addPagingInfo(pars, pagingInfo) {
@@ -617,6 +618,7 @@ function stompDisconnected(self, frame, deferred) {
   var wasConnected = self.connected
   var wasPaused = self.paused
   self.log("[CM] stompDisconnected wasConnected: " + wasConnected + " wasPaused: " + wasPaused)// + " err.code: " + frame.code + " err.wasClean: " + frame.wasClean)
+  self.stompClient = null
   self.connected = false
   self.connecting = false
   self.paused = false
@@ -800,8 +802,9 @@ CM.prototype.disconnect = function () {
   if (!this.connected)
     return Q()
   var deferred = Q.defer()
-  this.stompClient.disconnect(function (res) {
-    //self.log("[STOMP] Disconnect: " + res)
+  this.stompClient.disconnect(res => {
+    self.log("[CM] STOMP Client disconnect: " + res)
+    this.stompClient = null
     initializePrivateFields(self)
     deferred.resolve(res)
   })
@@ -2188,6 +2191,10 @@ CM.prototype.peekAccounts = function () {
 
 CM.prototype.peekAccountInfos = function () {
   return this.walletData.infos
+}
+
+CM.prototype.peekAccountBalance = function (account) {
+  return this.walletData.balances[account.pubId]
 }
 
 CM.prototype.peekAccountInfo = function (account) {
