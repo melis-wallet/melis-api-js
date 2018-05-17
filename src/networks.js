@@ -38,8 +38,8 @@ const litecoinTestnet = {
   wif: 0xEF
 }
 
-const grsTestnet = Object.assign({ messagePrefix: '\x1CGroestlcoin Signed Message:\n' }, litecoinTestnet)
-const grsProdnet = Object.assign({
+const grsTestnet = Object.assign({}, litecoinTestnet, { messagePrefix: '\x1CGroestlcoin Signed Message:\n' })
+const grsProdnet = Object.assign({}, grsTestnet, {
   bip32: {
     public: 0x0488B21E,
     private: 0x0488ADE4
@@ -47,7 +47,7 @@ const grsProdnet = Object.assign({
   pubKeyHash: 0x24, // 36
   scriptHash: 0x5,
   wif: 0x80
-}, grsTestnet)
+})
 
 function isValidLegacyAddress(address) {
   if (!address)
@@ -368,7 +368,7 @@ function pubkeyToAddress(key) {
 }
 
 function pubkeyToAddressGrs(key) {
-  return base58grs.encode(bcrypto.hash160(key.getPublicKeyBuffer()), this.network.pubKeyHash) 
+  return base58grs.encode(bcrypto.hash160(key.getPublicKeyBuffer()), this.network.pubKeyHash)
 }
 
 //
