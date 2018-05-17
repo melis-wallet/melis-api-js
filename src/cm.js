@@ -326,8 +326,8 @@ CM.prototype.getCoinDriver = function (coin) {
   return getDriver(coin)
 }
 
-CM.prototype.coinAddressToBytes = function (coin, address) {
-  return getDriver(coin).getAddressBytes(address)
+CM.prototype.decodeCoinAddress = function (coin, address) {
+  return getDriver(coin).decodeAddress(address)
 }
 
 CM.prototype.hashForSignature = function (coin, tx, index, redeemScript, amount, hashFlags) {
@@ -365,8 +365,8 @@ CM.prototype.signMessageWithAA = function (account, aa, message) {
   return this.signMessageWithKP(account.coin, key.keyPair, message)
 }
 
-CM.prototype.decodeAddressFromScript = function (coin, script) {
-  return getDriver(coin).decodeAddressFromScript(script)
+CM.prototype.buildAddressFromScript = function (coin, script) {
+  return getDriver(coin).buildAddressFromScript(script)
 }
 
 CM.prototype.addressFromPubKey = function (coin, pubKey) {
@@ -1611,9 +1611,9 @@ CM.prototype.isAddressOfAccount = function (account, accountAddress) {
       addr = this.calcP2SH(account.coin, info, accountAddress.chain, accountAddress.hdindex)
   }
   this.log("[isAddressesOfAccount] type: " + account.type + " accountAddress: " + accountAddress.address + " calcAddr: " + addr)
-  const aaBin = this.coinAddressToBytes(account.coin, accountAddress.address)
-  const addrBin = this.coinAddressToBytes(account.coin, addr)
-  return addrBin.equals(aaBin)
+  const decodedAa = this.decodeCoinAddress(account.coin, accountAddress.address)
+  const decodedAddr = this.decodeCoinAddress(account.coin, addr)
+  return decodedAddr.hash.equals(decodedAa.hash)
 }
 
 // updates account data if missing or incomplete
@@ -1675,19 +1675,19 @@ CM.prototype.analyzeTx = function (state, options) {
     if (recipients[j].pubId)
       recipients[j].validated = true
     else
-      recipients[j].binaddr = this.coinAddressToBytes(coin, recipients[j].address)
+      recipients[j].decodedAddr = this.decodeCoinAddress(coin, recipients[j].address)
   }
 
   // Mark our recipients to verify that none is left out
   for (i = 0; i < tx.outs.length; i++) {
     const output = tx.outs[i]
-    const toAddr = this.decodeAddressFromScript(coin, output.script)
-    const toAddrBytes = this.coinAddressToBytes(coin, toAddr)
+    const toAddr = this.buildAddressFromScript(coin, output.script)
+    const decodedTo = this.decodeCoinAddress(coin, toAddr)
     var isChange = false
     for (j = 0; j < changes.length; j++) {
-      const changeBytes = this.coinAddressToBytes(coin, changes[j].aa.address)
+      const decodedChange = this.decodeCoinAddress(coin, changes[j].aa.address)
       //if (toAddr === changes[j].aa.address) {
-      if (toAddrBytes.equals(changeBytes)) {
+      if (decodedTo.hash.equals(decodedChange.hash)) {
         amountToChange += output.value
         isChange = true
         break
@@ -1702,7 +1702,7 @@ CM.prototype.analyzeTx = function (state, options) {
         if (recipient.pubId || recipient.validated)
           continue
         //if (toAddr === recipient.address) {
-        if (toAddrBytes.equals(recipient.binaddr)) {
+        if (decodedTo.hash.equals(recipient.decodedAddr.hash)) {
           if (recipient.isRemainder || output.value === recipient.amount) {
             amountToRecipients += output.value
             isRecipient = true
