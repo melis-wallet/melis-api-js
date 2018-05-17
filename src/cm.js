@@ -369,8 +369,8 @@ CM.prototype.buildAddressFromScript = function (coin, script) {
   return getDriver(coin).buildAddressFromScript(script)
 }
 
-CM.prototype.addressFromPubKey = function (coin, pubKey) {
-  return getDriver(coin).addressFromPubKey(pubKey)
+CM.prototype.pubkeyToAddress = function (coin, key) {
+  return getDriver(coin).pubkeyToAddress(key)
 }
 
 CM.prototype.prepareAddressSignature = function (coin, keyPair, prefix) {
@@ -1461,11 +1461,6 @@ CM.prototype.ptxSignFields = function (account, ptx) {
   var num1 = simpleRandomInt(C.MAX_SUBPATH), num2 = simpleRandomInt(C.MAX_SUBPATH)
   var node = this.deriveMyHdAccount(account.num, num1, num2, account.coin)
   var sig = this.signMessageWithKP(account.coin, node.keyPair, ptx.rawTx)
-  //return { keyPath: [num1, num2], base64Sig: sig.toString('base64')}
-  //    var verified = self.verifyMessage(node.keyPair.getAddress(), sig, msg)
-  //    this.log("our xpub: : " + ptx.accountPubId + " path: " + keyPath[0] + " " + keyPath[1])
-  //    this.log("address: " + node.keyPair.getAddress() + " msg: " + msg + " SIG: " + sig.toString('base64') + " VERIFY: " + verified)
-  //    var keyMessage = {keyPath: keyPath, ptxSig: sig.toString('base64'), type: 'fullAES'}
   return this.rpc(C.ACCOUNT_PTX_SIGN_FIELDS, {
     data: ptx.id,
     num1: num1,
@@ -1483,11 +1478,11 @@ CM.prototype.ptxHasFieldsSignature = function (ptx) {
 
 // TODO: add verification of cosigners public key
 CM.prototype.ptxVerifyFieldsSignature = function (account, ptx) {
-  var self = this
+  const self = this
   return this.ensureAccountInfo(account).then(function (account) {
     if (!self.ptxHasFieldsSignature(ptx))
       throwInvalidSignatureEx("PTX owner signature missing")
-    var xpub = account.xpub
+    const xpub = account.xpub
     if (account.numCosigners > 0) {
       var cosignerData = self.peekAccountInfo(account).cosigners.find(function (cosigner) {
         return cosigner.pubId === ptx.accountPubId
@@ -1496,12 +1491,13 @@ CM.prototype.ptxVerifyFieldsSignature = function (account, ptx) {
         throwInvalidSignatureEx("PTX owner not found: " + ptx.accountPubId)
       xpub = cosignerData.xpub
     }
-    var keyMessage = ptx.meta.ownerSig
+    const keyMessage = ptx.meta.ownerSig
     self.log("ptx keyMessage:", keyMessage)
-    var keyPath = keyMessage.keyPath
+    const keyPath = keyMessage.keyPath
     const hd = self.hdNodeFromBase58(xpub, account.coin)
-    var node = hd.derive(keyPath[0]).derive(keyPath[1])
-    var address = node.keyPair.getAddress()
+    const node = hd.derive(keyPath[0]).derive(keyPath[1])
+    //var address = node.keyPair.getAddress()
+    const address = self.pubkeyToAddress(account.coin, node.keyPair)
     var ptxSigVerified = false
     try {
       ptxSigVerified = self.verifyBitcoinMessageSignature(account.coin, address, keyMessage.ptxSig, ptx.rawTx)
@@ -1546,7 +1542,8 @@ CM.prototype.signaturesPrepare = function (params) {
     if (accountAddress.redeemScript)
       redeemScript = Buffer.from(accountAddress.redeemScript, "hex")
     else
-      redeemScript = self.toOutputScript(coin, key.getAddress()) // o inputInfo.script
+      //redeemScript = self.toOutputScript(coin, key.getAddress()) // o inputInfo.script
+      redeemScript = self.toOutputScript(coin, self.pubkeyToAddress(coin, key)) // o inputInfo.script
     //self.log("aa.script " + accountAddress.redeemScript)
     const hashForSignature = self.hashForSignature(coin, tx, i, redeemScript, inputInfo.amount, Bitcoin.Transaction.SIGHASH_ALL)
     const signature = key.sign(hashForSignature)
@@ -1603,16 +1600,21 @@ CM.prototype.isAddressOfAccount = function (account, accountAddress) {
   var addr
   switch (account.type) {
     case C.TYPE_PLAIN_HD:
-      var key = this.deriveMyHdAccount(account.num, accountAddress.chain, accountAddress.hdindex, account.coin)
-      addr = key.getAddress()
+      const key = this.deriveMyHdAccount(account.num, accountAddress.chain, accountAddress.hdindex, account.coin)
+      //addr = key.getAddress()
+      addr = this.pubkeyToAddress(account.coin, key)
       break
     default:
-      var info = this.peekAccountInfo(account)
+      const info = this.peekAccountInfo(account)
       addr = this.calcP2SH(account.coin, info, accountAddress.chain, accountAddress.hdindex)
   }
   this.log("[isAddressesOfAccount] type: " + account.type + " accountAddress: " + accountAddress.address + " calcAddr: " + addr)
-  const decodedAa = this.decodeCoinAddress(account.coin, accountAddress.address)
-  const decodedAddr = this.decodeCoinAddress(account.coin, addr)
+  try {
+    var decodedAa = this.decodeCoinAddress(account.coin, accountAddress.address)
+    var decodedAddr = this.decodeCoinAddress(account.coin, addr)
+  } catch (err) {
+    return false
+  }
   return decodedAddr.hash.equals(decodedAa.hash)
 }
 

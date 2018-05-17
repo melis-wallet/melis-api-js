@@ -8,8 +8,11 @@ function groestlx2(buffer) {
 const bs58checkBase = function (checksumFn) {
 
   // Encode a buffer as a base58-check encoded string
-  function encode(payload) {
-    var checksum = Buffer.from(checksumFn(payload))
+  function encode(hash, prefix) {
+    const payload = Buffer.allocUnsafe(hash.length + 1)
+    payload.writeUInt8(prefix, 0)
+    hash.copy(payload, 1)
+    const checksum = Buffer.from(checksumFn(payload))
     return base58.encode(Buffer.concat([
       payload,
       checksum

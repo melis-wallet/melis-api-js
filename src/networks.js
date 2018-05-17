@@ -1,5 +1,6 @@
 const Bitcoin = require('bitcoinjs-lib')
 const bscript = Bitcoin.script
+const bcrypto = Bitcoin.crypto
 const BitcoinMessage = require('bitcoinjs-message')
 const cashaddr = require('cashaddrjs')
 const base58grs = require('./base58grs')
@@ -63,7 +64,8 @@ function isValidLegacyAddress(address) {
 function isValidBchAddress(address) {
   const self = this
   try {
-    getAddressBytesFromBchAddress(address, self)
+    const { prefix, type, hash } = decodeBitcoinCashAddress(address, self)
+    // TODO: Verificare correttezza network?
     return true
   } catch (ex) {
     return false
@@ -74,7 +76,7 @@ function isValidGrsAddress(address) {
   if (!address)
     return false
   try {
-    const { version, hash } = grsDecodeBase58(address)
+    const { version, hash } = decodeGrsLegacyAddress(address)
     // TODO: Verificare correttezza network?
     return true
   } catch (ex) {
@@ -83,7 +85,7 @@ function isValidGrsAddress(address) {
   }
 }
 
-function grsDecodeBase58(base58Address) {
+function decodeGrsLegacyAddress(base58Address) {
   console.log("REMOVEME grsDecodeBase58 " + base58Address)
   const payload = base58grs.decode(base58Address)
 
@@ -96,21 +98,15 @@ function grsDecodeBase58(base58Address) {
   return { version: version, hash: hash }
 }
 
-// function getAddressBytesFromGrsAddr(base58Address) {
-//   console.log("REMOVEME getAddrBytesGRS for " + base58Address)
-//   const { version, hash } = grsDecodeBase58(base58Address)
-//   return hash
-// }
-
-function getAddressBytesFromLegacyAddr(base58Address) {
+function decodeBitcoinLegacyAddress(base58Address) {
   return Bitcoin.address.fromBase58Check(base58Address)
   // const { version, hash } = Bitcoin.address.fromBase58Check(base58Address)
   // return hash
 }
 
-function getAddressBytesFromBchAddress(address, self) {
+function decodeBitcoinCashAddress(address, self) {
   if (C.LEGACY_BITCOIN_REGEX.test(address))
-    return getAddressBytesFromLegacyAddr(address)
+    return decodeBitcoinLegacyAddress(address)
 
   if (CASH_BECH32_REGEX.test(address)) {
     //const { prefix, type, hash } = cashaddr.decode(address)
@@ -120,11 +116,11 @@ function getAddressBytesFromBchAddress(address, self) {
     //return Buffer.from(hash)
     return decoded
   }
-  
+
   if (CASH_BECH32_WITHOUT_PREFIX_LOWERCASE.test(address)) {
     //const { prefix, type, hash } = cashaddr.decode(self.addressPrefix + ":" + address)
     //return Buffer.from(hash)
-    const decoded= cashaddr.decode(self.addressPrefix + ":" + address)
+    const decoded = cashaddr.decode(self.addressPrefix + ":" + address)
     if (decoded.prefix !== self.addressPrefix)
       throw new MelisError("CmInvalidAddressException", "Invalid network for Bitcoin Cash Address -- expected: " + self.addressPrefix + " got: " + prefix)
     return decoded
@@ -133,7 +129,7 @@ function getAddressBytesFromBchAddress(address, self) {
   if (CASH_BECH32_WITHOUT_PREFIX_UPPERCASE.test(address)) {
     // const { prefix, type, hash } = cashaddr.decode(self.addressPrefix.toUpperCase() + ":" + address)
     // return Buffer.from(hash)
-    const decoded= cashaddr.decode(self.addressPrefix.toUpperCase() + ":" + address)
+    const decoded = cashaddr.decode(self.addressPrefix.toUpperCase() + ":" + address)
     if (decoded.prefix !== self.addressPrefix)
       throw new MelisError("CmInvalidAddressException", "Invalid network for Bitcoin Cash Address -- expected: " + self.addressPrefix + " got: " + prefix)
     return decoded
@@ -228,7 +224,7 @@ function toOutputScriptLegacy(address) {
 }
 
 function toOutputScriptGrs(base58Address) {
-  const { version, hash } = grsDecodeBase58(base58Address)
+  const { version, hash } = decodeGrsLegacyAddress(base58Address)
   if (version === network.pubKeyHash)
     return bscript.pubKeyHash.output.encode(hash)
   if (version === network.scriptHash)
@@ -254,15 +250,14 @@ function buildAddressFromScript(script) {
 }
 
 function buildAddressFromScriptGrs(outputScript) {
-  console.log("bscript.pubKeyHash: ", bscript.pubKeyHash)
+  console.log("REMOVEME buildAddressFromScriptGrs as BTC: ", Bitcoin.address.fromOutputScript(outputScript, this.network))
+  var res
   if (bscript.pubKeyHash.output.check(outputScript))
-    return base58grs.encode(bscript.compile(outputScript).slice(3, 23), this.network.pubKeyHash)
+    res = base58grs.encode(bscript.compile(outputScript).slice(3, 23), this.network.pubKeyHash)
   if (bscript.scriptHash.output.check(outputScript))
-    return base58grs.encode(bscript.compile(outputScript).slice(2, 22), this.network.scriptHash)
-}
-
-function addressFromPubKey(pubKey) {
-  return pubKey.getAddress(this.network)
+    res = base58grs.encode(bscript.compile(outputScript).slice(2, 22), this.network.scriptHash)
+  console.log("REMOVEME buildAddressFromScriptGrs as GRS: ", res)
+  return res
 }
 
 function derivePubKeys(xpubs, chain, hdIndex) {
@@ -281,7 +276,7 @@ function extractPubKeyFromOutputScript(script) {
 }
 
 function prepareAddressSignature(keyPair, prefix) {
-  var address = this.addressFromPubKey(keyPair)
+  var address = pubkeyToAddress(keyPair)
   var message = prefix + address
   return {
     address: address,
@@ -350,7 +345,7 @@ function calcP2SH(accountInfo, chain, hdIndex) {
   }
   logger.log("[calcP2SH] script: " + script)
   var redeemScript = Bitcoin.script.fromASM(script)
-  var scriptPubKey = Bitcoin.script.scriptHash.output.encode(Bitcoin.crypto.hash160(redeemScript))
+  var scriptPubKey = Bitcoin.script.scriptHash.output.encode(bcrypto.hash160(redeemScript))
   //logger.log("redeemScript: ", Bitcoin.script.toASM(redeemScript))
   //logger.log("scriptPubKey: ", Bitcoin.script.toASM(scriptPubKey))
   return Bitcoin.address.fromOutputScript(scriptPubKey, this.network)
@@ -368,13 +363,22 @@ function fixKeyNetworkParameters(key) {
   key.keyPair.network = this.network
 }
 
+function pubkeyToAddress(key) {
+  return key.getAddress(this.network)
+}
+
+function pubkeyToAddressGrs(key) {
+  return base58grs.encode(bcrypto.hash160(key.getPublicKeyBuffer()), this.network.pubKeyHash) 
+}
+
 //
 //
 //
 
 const COMMON_METHODS = {
   wifToEcPair, signMessageWithKP, verifyBitcoinMessageSignature,
-  buildAddressFromScript, addressFromPubKey, extractPubKeyFromOutputScript,
+  buildAddressFromScript, extractPubKeyFromOutputScript,
+  pubkeyToAddress,
   prepareAddressSignature, derivePubKeys, calcP2SH,
   hdNodeFromHexSeed, hdNodeFromBase58, fixKeyNetworkParameters
 }
@@ -387,7 +391,7 @@ const BTC_COMMON = {
   isValidAddress: isValidLegacyAddress,
   toScriptSignature: toScriptSignatureLegacy,
   toOutputScript: toOutputScriptLegacy,
-  decodeAddress: getAddressBytesFromLegacyAddr,
+  decodeAddress: decodeBitcoinLegacyAddress,
   hashForSignature: hashForSignatureLegacy
 }
 
@@ -397,7 +401,7 @@ const BCH_COMMON = {
   toScriptSignature: toScriptSignatureCash,
   toOutputScript: toOutputScriptCash,
   hashForSignature: hashForSignatureCash,
-  decodeAddress: function (address) { return getAddressBytesFromBchAddress(address, this) },
+  decodeAddress: function (address) { return decodeBitcoinCashAddress(address, this) },
   toLegacyAddress: function (address) { return convertBech32CashAddressToLegacy(address, this) },
   toCashAddress: function (address) { return convertLegacyAddressToBech32Cash(address, this) }
 }
@@ -418,9 +422,10 @@ const GRS = Object.assign({}, BTC,
   {
     network: grsTestnet,
     isValidAddress: isValidGrsAddress,
-    decodeAddress: grsDecodeBase58,
+    decodeAddress: decodeGrsLegacyAddress,
     toOutputScript: toOutputScriptGrs,
-    buildAddressFromScript: buildAddressFromScriptGrs
+    buildAddressFromScript: buildAddressFromScriptGrs,
+    pubkeyToAddress: pubkeyToAddressGrs
   })
 const TGRS = Object.assign({}, GRS, { network: grsTestnet })
 const RGRS = Object.assign({}, GRS, { network: grsProdnet })
