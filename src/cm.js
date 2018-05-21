@@ -354,8 +354,8 @@ CM.prototype.signMessageWithKP = function (coin, keyPair, message) {
   return getDriver(coin).signMessageWithKP(keyPair, message)
 }
 
-CM.prototype.verifyBitcoinMessageSignature = function (coin, address, signature, message) {
-  return getDriver(coin).verifyBitcoinMessageSignature(address, signature, message)
+CM.prototype.verifyMessageSignature = function (coin, address, signature, message) {
+  return getDriver(coin).verifyMessageSignature(address, signature, message)
 }
 
 CM.prototype.signMessageWithAA = function (account, aa, message) {
@@ -399,6 +399,12 @@ CM.prototype.hdNodeFromBase58 = function (xpub, coin) {
   if (!coin)
     coin = this.getDefaultPlatformCoin()
   return getDriver(coin).hdNodeFromBase58(xpub)
+}
+
+CM.prototype.hdNodeToBase58Xpub = function (hd, coin) {
+  if (!coin)
+    coin = this.getDefaultPlatformCoin()
+  return getDriver(coin).hdNodeToBase58Xpub(hd)
 }
 
 CM.prototype.updateNetworkFees = function (coin) {
@@ -1090,13 +1096,11 @@ CM.prototype.walletRegister = function (seed, params) {
     return Q.reject(ex)
   }
   return self.rpc(C.WALLET_REGISTER, {
-    xpub: loginKey.neutered().toBase58(),
-    //id: loginKey.getPublicKeyBuffer().toString('hex'),
-    //chainCode: loginKey.chainCode.toString('hex'),
+    xpub: self.hdNodeToBase58Xpub(loginKey),
     sessionName: params.sessionName,
     deviceId: params.deviceId,
     usePinAsTfa: params.usePinAsTfa
-  }).then(function (res) {
+  }).then(res => {
     self.log("[CM] walletRegister: ", res)
     walletOpen(self, hd, res.wallet)
     self.lastOpenParams = { seed: seed, sessionName: params.sessionName, deviceId: params.deviceId }
@@ -1206,7 +1210,7 @@ CM.prototype.accountCreate = function (params) {
     this.log("[CM] accountCreate coin: " + params.coin + " accountNum: " + params.accountNum)
     params.accountNum = accountNum
     var accountHd = self.deriveMyHdAccount(accountNum, undefined, undefined, params.coin)
-    params.xpub = accountHd.neutered().toBase58()
+    params.xpub = self.hdNodeToBase58Xpub(accountHd, params.coin)
     return self.rpc(C.ACCOUNT_REGISTER, params)
   }).then(res => {
     updateAccount(self, res.account, res.balance, res.accountInfo)
@@ -1235,7 +1239,7 @@ CM.prototype.accountJoin = function (params) {
     return self.rpc(C.ACCOUNT_JOIN, {
       code: params.code,
       accountNum: params.accountNum,
-      xpub: accountHd.neutered().toBase58(),
+      xpub: self.hdNodeToBase58Xpub(accountHd, params.coin),
       meta: params.meta
     })
   }).then(res => {
@@ -1500,7 +1504,7 @@ CM.prototype.ptxVerifyFieldsSignature = function (account, ptx) {
     const address = self.pubkeyToAddress(account.coin, node.keyPair)
     var ptxSigVerified = false
     try {
-      ptxSigVerified = self.verifyBitcoinMessageSignature(account.coin, address, keyMessage.ptxSig, ptx.rawTx)
+      ptxSigVerified = self.verifyMessageSignature(account.coin, address, keyMessage.ptxSig, ptx.rawTx)
       self.log("[CM] ptx#" + ptx.id + " address: " + address + " VERIFIED: " + ptxSigVerified)
     } catch (ex) {
       self.log("verifyBitcoinMessageEx: ", ex)
@@ -1522,18 +1526,19 @@ CM.prototype.ptxsGet = function (account, filter, pagingInfo) {
 }
 
 CM.prototype.signaturesPrepare = function (params) {
-  // this.log("[CM signaturesPrepare] txId: " + ptx.id)
-  var self = this
-  var hd = params.hd || this.hdWallet
-  var coin = params.coin
-  var accountNum = params.accountNum
-  var progressCallback = params.progressCallback
-  var tx = this.decodeTxFromBuffer(Buffer.from(params.rawTx, 'hex'))
-  var inputs = params.inputs
-  var signatures = []
+  const self = this
+  const hd = params.hd || this.hdWallet
+  const coin = params.coin
+  const accountNum = params.accountNum
+  const progressCallback = params.progressCallback
+  const tx = this.decodeTxFromBuffer(Buffer.from(params.rawTx, 'hex'))
+  const inputs = params.inputs
+  const signatures = []
+  const deferred = Q.defer()
+
   const signInput = function (i) {
-    var inputInfo = inputs[i]
-    self.log("signInput #" + i + " account#: " + accountNum + " info: '" + JSON.stringify(inputInfo) + "' coin: " + coin)
+    const inputInfo = inputs[i]
+    self.log("signInput #" + i + " account#: " + accountNum + " coin: " + coin + " intputInfo:", inputInfo)
     if (!inputInfo)
       throwUnexpectedEx("Internal error: can't find info data for tx input #" + i)
     const accountAddress = inputInfo.aa
@@ -1542,18 +1547,16 @@ CM.prototype.signaturesPrepare = function (params) {
     if (accountAddress.redeemScript)
       redeemScript = Buffer.from(accountAddress.redeemScript, "hex")
     else
-      //redeemScript = self.toOutputScript(coin, key.getAddress()) // o inputInfo.script
       redeemScript = self.toOutputScript(coin, self.pubkeyToAddress(coin, key)) // o inputInfo.script
-    //self.log("aa.script " + accountAddress.redeemScript)
     const hashForSignature = self.hashForSignature(coin, tx, i, redeemScript, inputInfo.amount, Bitcoin.Transaction.SIGHASH_ALL)
     const signature = key.sign(hashForSignature)
     //self.log("[signed input #" + i + "] redeemScript: " + redeemScript.buffer.toString('hex') +
     //        " hashForSignature: " + hashForSignature.toString('hex')) // + " sig: " + sig.toString('hex'))
     signatures.push({ key: key, sig: signature })
   }
-  var deferred = Q.defer()
-  var f = function (i) {
-    var progressInfo = { currStep: i, totalSteps: tx.ins.length }
+
+  const f = function (i) {
+    const progressInfo = { currStep: i, totalSteps: tx.ins.length }
     deferred.notify(progressInfo)
     var promise = null
     if (progressCallback)
@@ -1568,6 +1571,7 @@ CM.prototype.signaturesPrepare = function (params) {
         f(i + 1)
     })
   }
+
   process.nextTick(function () {
     f(0)
   })
@@ -1829,7 +1833,7 @@ CM.prototype.verifyPtx = function (state, options) {
 
 CM.prototype.payConfirm = function (state, tfa) {
   var self = this
-  return this.ptxVerifyFieldsSignature(state.account, state.ptx).then(function () {
+  return this.ptxVerifyFieldsSignature(state.account, state.ptx).then(() => {
     return self.signaturesPrepare({
       coin: state.account.coin,
       accountNum: state.account.num,
@@ -1855,7 +1859,7 @@ CM.prototype.payRecipients = function (account, recipients, options) {
   var self = this
   options = options || {}
   options.autoSignIfValidated = true
-  return this.payPrepare(account, recipients, options).then(function (state) {
+  return this.payPrepare(account, recipients, options).then(state => {
     if (state.summary.validated) {
       return self.payConfirm(state, options ? options.tfa : undefined).then(function (hash) {
         state.hash = hash
@@ -2349,9 +2353,9 @@ CM.prototype.recoveryPrepareMultiSigTx = function (accountInfo, tx, unspents, se
   const accountsData = []
   seeds.forEach(seed => {
     var walletHd = self.hdNodeFromHexSeed(seed)
-    var cosigner = cosigners.find(function (cosigner) {
+    var cosigner = cosigners.find(cosigner => {
       var accountHd = self.deriveHdAccount(walletHd, cosigner.accountNum, undefined, undefined, coin)
-      return accountHd.neutered().toBase58() === cosigner.xpub
+      return self.hdNodeToBase58Xpub(accountHd, coin) === cosigner.xpub
     })
     if (!cosigner)
       throw new MelisError('CmBadParamException', "Unable to find cosigner for seed: " + seed)

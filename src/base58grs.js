@@ -9,9 +9,12 @@ const bs58checkBase = function (checksumFn) {
 
   // Encode a buffer as a base58-check encoded string
   function encode(hash, prefix) {
-    const payload = Buffer.allocUnsafe(hash.length + 1)
-    payload.writeUInt8(prefix, 0)
-    hash.copy(payload, 1)
+    var payload = hash
+    if (prefix) {
+      payload = Buffer.allocUnsafe(hash.length + 1)
+      payload.writeUInt8(prefix, 0)
+      hash.copy(payload, 1)
+    }
     const checksum = Buffer.from(checksumFn(payload))
     return base58.encode(Buffer.concat([
       payload,

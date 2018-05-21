@@ -1,9 +1,15 @@
 const Bitcoin = require('bitcoinjs-lib')
 const bscript = Bitcoin.script
 const bcrypto = Bitcoin.crypto
-const BitcoinMessage = require('bitcoinjs-message')
+const opcodes = Bitcoin.opcodes
+
+const ecurve = require('ecurve')
+const curve = ecurve.getCurveByName('secp256k1')
+//const BitcoinMessage = require('bitcoinjs-message')
+const BitcoinMessage = require('./sign-message')
 const cashaddr = require('cashaddrjs')
 const base58grs = require('./base58grs')
+const base58check = require('bs58check')
 const C = require("./cm-constants")
 // import { MelisError, throwUnexpectedEx } from "./melis-error"
 const MelisErrorModule = require("./melis-error")
@@ -38,7 +44,10 @@ const litecoinTestnet = {
   wif: 0xEF
 }
 
-const grsTestnet = Object.assign({}, litecoinTestnet, { messagePrefix: '\x1CGroestlcoin Signed Message:\n' })
+const grsTestnet = Object.assign({}, litecoinTestnet, {
+  messagePrefix: '\x1CGroestlcoin Signed Message:\n',
+  scriptHash: 0xc4
+})
 const grsProdnet = Object.assign({}, grsTestnet, {
   bip32: {
     public: 0x0488B21E,
@@ -86,7 +95,6 @@ function isValidGrsAddress(address) {
 }
 
 function decodeGrsLegacyAddress(base58Address) {
-  console.log("REMOVEME grsDecodeBase58 " + base58Address)
   const payload = base58grs.decode(base58Address)
 
   if (payload.length < 21 || payload.length > 21)
@@ -144,6 +152,77 @@ function hashForSignatureLegacy(tx, index, redeemScript, amount, hashFlags) {
 
 function hashForSignatureCash(tx, index, redeemScript, amount, hashFlags) {
   return tx.hashForWitnessV0(index, redeemScript, amount, hashFlags + SIGHASH_BITCOINCASHBIP143)
+}
+
+function hashForSignatureGrs(tx, inIndex, prevOutScript, amount, hashType) {
+  const EMPTY_SCRIPT = Buffer.allocUnsafe(0)
+  const ONE = Buffer.from('0000000000000000000000000000000000000000000000000000000000000001', 'hex')
+  const VALUE_UINT64_MAX = Buffer.from('ffffffffffffffff', 'hex')
+  const BLANK_OUTPUT = {
+    script: EMPTY_SCRIPT,
+    valueBuffer: VALUE_UINT64_MAX
+  }
+
+  // https://github.com/bitcoin/bitcoin/blob/master/src/test/sighash_tests.cpp#L29
+  if (inIndex >= tx.ins.length) return ONE
+
+  // ignore OP_CODESEPARATOR
+  var ourScript = bscript.compile(bscript.decompile(prevOutScript).filter(function (x) {
+    return x !== opcodes.OP_CODESEPARATOR
+  }))
+
+  var txTmp = tx.clone()
+
+  // SIGHASH_NONE: ignore all outputs? (wildcard payee)
+  if ((hashType & 0x1f) === Bitcoin.Transaction.SIGHASH_NONE) {
+    txTmp.outs = []
+
+    // ignore sequence numbers (except at inIndex)
+    txTmp.ins.forEach(function (input, i) {
+      if (i === inIndex) return
+
+      input.sequence = 0
+    })
+
+    // SIGHASH_SINGLE: ignore all outputs, except at the same index?
+  } else if ((hashType & 0x1f) === Bitcoin.Transaction.SIGHASH_SINGLE) {
+    // https://github.com/bitcoin/bitcoin/blob/master/src/test/sighash_tests.cpp#L60
+    if (inIndex >= tx.outs.length) return ONE
+
+    // truncate outputs after
+    txTmp.outs.length = inIndex + 1
+
+    // "blank" outputs before
+    for (var i = 0; i < inIndex; i++) {
+      txTmp.outs[i] = BLANK_OUTPUT
+    }
+
+    // ignore sequence numbers (except at inIndex)
+    txTmp.ins.forEach(function (input, y) {
+      if (y === inIndex) return
+
+      input.sequence = 0
+    })
+  }
+
+  // SIGHASH_ANYONECANPAY: ignore inputs entirely?
+  if (hashType & Bitcoin.Transaction.SIGHASH_ANYONECANPAY) {
+    txTmp.ins = [txTmp.ins[inIndex]]
+    txTmp.ins[0].script = ourScript
+
+    // SIGHASH_ALL: only ignore input scripts
+  } else {
+    // "blank" others input scripts
+    txTmp.ins.forEach(function (input) { input.script = EMPTY_SCRIPT })
+    txTmp.ins[inIndex].script = ourScript
+  }
+
+  // serialize and hash
+  var buffer = Buffer.allocUnsafe(txTmp.__byteLength(false) + 4)
+  buffer.writeInt32LE(hashType, buffer.length - 4)
+  txTmp.__toBuffer(buffer, 0, false)
+
+  return bcrypto.sha256(buffer)
 }
 
 function toScriptSignatureLegacy(signature, hashFlags) {
@@ -225,10 +304,10 @@ function toOutputScriptLegacy(address) {
 
 function toOutputScriptGrs(base58Address) {
   const { version, hash } = decodeGrsLegacyAddress(base58Address)
-  if (version === network.pubKeyHash)
+  if (version === this.network.pubKeyHash)
     return bscript.pubKeyHash.output.encode(hash)
-  if (version === network.scriptHash)
-    return bscript.scriptHash.output.encode(decode.hash)
+  if (version === this.network.scriptHash)
+    return bscript.scriptHash.output.encode(hash)
   throw new MelisError("CmInvalidAddressException", "Unexpected version: " + version + " decoding Groestlcoin address: " + base58Address)
 }
 
@@ -241,8 +320,14 @@ function signMessageWithKP(keyPair, message) {
   return BitcoinMessage.sign(message, pk, true, this.network.messagePrefix).toString('base64')
 }
 
-function verifyBitcoinMessageSignature(address, signature, message) {
-  return BitcoinMessage.verify(message, address, new Buffer(signature, 'base64'), this.network.messagePrefix)
+function verifyMessageSignature(address, signature, message) {
+  //return BitcoinMessage.verify(message, address, new Buffer(signature, 'base64'), this.network.messagePrefix)
+  const { version, hash } = decodeBitcoinLegacyAddress(address)
+  return BitcoinMessage.verify(message, hash, new Buffer(signature, 'base64'), this.network.messagePrefix)
+}
+function verifyMessageSignatureGrs(address, signature, message) {
+  const { version, hash } = decodeGrsLegacyAddress(address)
+  return BitcoinMessage.verify(message, hash, new Buffer(signature, 'base64'), this.network.messagePrefix)
 }
 
 function buildAddressFromScript(script) {
@@ -250,14 +335,11 @@ function buildAddressFromScript(script) {
 }
 
 function buildAddressFromScriptGrs(outputScript) {
-  console.log("REMOVEME buildAddressFromScriptGrs as BTC: ", Bitcoin.address.fromOutputScript(outputScript, this.network))
-  var res
   if (bscript.pubKeyHash.output.check(outputScript))
-    res = base58grs.encode(bscript.compile(outputScript).slice(3, 23), this.network.pubKeyHash)
+    return base58grs.encode(bscript.compile(outputScript).slice(3, 23), this.network.pubKeyHash)
   if (bscript.scriptHash.output.check(outputScript))
-    res = base58grs.encode(bscript.compile(outputScript).slice(2, 22), this.network.scriptHash)
-  console.log("REMOVEME buildAddressFromScriptGrs as GRS: ", res)
-  return res
+    return base58grs.encode(bscript.compile(outputScript).slice(2, 22), this.network.scriptHash)
+  throw new MelisError("CmUnexpectedException", "Unknown script template: " + outputScript)
 }
 
 function derivePubKeys(xpubs, chain, hdIndex) {
@@ -265,10 +347,10 @@ function derivePubKeys(xpubs, chain, hdIndex) {
 }
 
 function extractPubKeyFromOutputScript(script) {
-  var type = Bitcoin.script.classifyOutput(script)
+  var type = bscript.classifyOutput(script)
   if (type === "pubkey") {
     //return Bitcoin.ECPubKey.fromBuffer(script.chunks[0])
-    var decoded = Bitcoin.script.decompile(script)
+    var decoded = bscript.decompile(script)
     //logger.log("Decoded:"); logger.log(decoded)
     return Bitcoin.ECPair.fromPublicKeyBuffer(decoded[0], this.network)
   }
@@ -344,8 +426,8 @@ function calcP2SH(accountInfo, chain, hdIndex) {
     script = createRedeemScript(derivePubKeys_internal(scriptParams.otherKeys, chain, hdIndex, this.network), accountInfo.minSignatures, false)
   }
   logger.log("[calcP2SH] script: " + script)
-  var redeemScript = Bitcoin.script.fromASM(script)
-  var scriptPubKey = Bitcoin.script.scriptHash.output.encode(bcrypto.hash160(redeemScript))
+  var redeemScript = bscript.fromASM(script)
+  var scriptPubKey = bscript.scriptHash.output.encode(bcrypto.hash160(redeemScript))
   //logger.log("redeemScript: ", Bitcoin.script.toASM(redeemScript))
   //logger.log("scriptPubKey: ", Bitcoin.script.toASM(scriptPubKey))
   return Bitcoin.address.fromOutputScript(scriptPubKey, this.network)
@@ -357,6 +439,76 @@ function hdNodeFromHexSeed(seed) {
 
 function hdNodeFromBase58(xpub) {
   return Bitcoin.HDNode.fromBase58(xpub, this.network)
+}
+
+function hdNodeFromBase58Grs(hd_base58_ser) {
+  var buffer = base58grs.decode(hd_base58_ser)
+  if (buffer.length !== 78) throw new Error('Invalid buffer length')
+
+  // 4 bytes: version bytes
+  var version = buffer.readUInt32BE(0)
+  const network = this.network
+
+  // // list of networks?
+  // if (Array.isArray(Bitcoin.networks)) {
+  //   network = Bitcoin.networks.filter(function (x) {
+  //     return version === x.bip32.private ||
+  //       version === x.bip32.public
+  //   }).pop()
+
+  //   if (!network) throw new Error('Unknown network version')
+
+  //   // otherwise, assume a network object (or default to bitcoin)
+  // } else {
+  //   network = networks || NETWORKS.bitcoin
+  // }
+
+  if (version !== network.bip32.private &&
+    version !== network.bip32.public) throw new Error('Invalid network version')
+
+  // 1 byte: depth: 0x00 for master nodes, 0x01 for level-1 descendants, ...
+  var depth = buffer[4]
+
+  // 4 bytes: the fingerprint of the parent's key (0x00000000 if master key)
+  var parentFingerprint = buffer.readUInt32BE(5)
+  if (depth === 0) {
+    if (parentFingerprint !== 0x00000000) throw new Error('Invalid parent fingerprint')
+  }
+
+  // 4 bytes: child number. This is the number i in xi = xpar/i, with xi the key being serialized.
+  // This is encoded in MSB order. (0x00000000 if master key)
+  var index = buffer.readUInt32BE(9)
+  if (depth === 0 && index !== 0) throw new Error('Invalid index')
+
+  // 32 bytes: the chain code
+  var chainCode = buffer.slice(13, 45)
+  var keyPair
+
+  // 33 bytes: private key data (0x00 + k)
+  if (version === network.bip32.private) {
+    if (buffer.readUInt8(45) !== 0x00) throw new Error('Invalid private key')
+
+    var d = BigInteger.fromBuffer(buffer.slice(46, 78))
+    keyPair = new Bitcoin.ECPair(d, null, { network: network })
+
+    // 33 bytes: public key data (0x02 + X or 0x03 + X)
+  } else {
+    var Q = ecurve.Point.decodeFrom(curve, buffer.slice(45, 78))
+    // Q.compressed is assumed, if somehow this assumption is broken, `new HDNode` will throw
+
+    // Verify that the X coordinate in the public point corresponds to a point on the curve.
+    // If not, the extended public key is invalid.
+    curve.validate(Q)
+
+    keyPair = new Bitcoin.ECPair(null, Q, { network: network })
+  }
+
+  var hd = new Bitcoin.HDNode(keyPair, chainCode)
+  hd.depth = depth
+  hd.index = index
+  hd.parentFingerprint = parentFingerprint
+
+  return hd
 }
 
 function fixKeyNetworkParameters(key) {
@@ -371,14 +523,46 @@ function pubkeyToAddressGrs(key) {
   return base58grs.encode(bcrypto.hash160(key.getPublicKeyBuffer()), this.network.pubKeyHash)
 }
 
+function hdNodeToBase58Xpub(hd) {
+  return hd.neutered().toBase58()
+}
+
+function hdNodeToBase58XpubGrs(hd) {
+  // Version
+  const version = this.network.bip32.public
+  const buffer = Buffer.allocUnsafe(78)
+
+  // 4 bytes: version bytes
+  buffer.writeUInt32BE(version, 0)
+
+  // 1 byte: depth: 0x00 for master nodes, 0x01 for level-1 descendants, ....
+  buffer.writeUInt8(hd.depth, 4)
+
+  // 4 bytes: the fingerprint of the parent's key (0x00000000 if master key)
+  buffer.writeUInt32BE(hd.parentFingerprint, 5)
+
+  // 4 bytes: child number. This is the number i in xi = xpar/i, with xi the key being serialized.
+  // This is encoded in big endian. (0x00000000 if master key)
+  buffer.writeUInt32BE(hd.index, 9)
+
+  // 32 bytes: the chain code
+  hd.chainCode.copy(buffer, 13)
+
+  // 33 bytes: the public key
+  // X9.62 encoding for public keys
+  hd.keyPair.getPublicKeyBuffer().copy(buffer, 45)
+
+  return base58grs.encode(buffer)
+}
+
 //
 //
 //
 
 const COMMON_METHODS = {
-  wifToEcPair, signMessageWithKP, verifyBitcoinMessageSignature,
+  wifToEcPair, signMessageWithKP, verifyMessageSignature,
   buildAddressFromScript, extractPubKeyFromOutputScript,
-  pubkeyToAddress,
+  pubkeyToAddress, hdNodeToBase58Xpub,
   prepareAddressSignature, derivePubKeys, calcP2SH,
   hdNodeFromHexSeed, hdNodeFromBase58, fixKeyNetworkParameters
 }
@@ -408,27 +592,31 @@ const BCH_COMMON = {
 
 const BTC = Object.assign({ network: Bitcoin.networks.bitcoin }, BTC_COMMON, COMMON_METHODS)
 const TBTC = Object.assign({}, BTC, { network: Bitcoin.networks.testnet })
-const RBTC = Object.assign({}, BTC, { network: Bitcoin.networks.testnet })
+const RBTC = Object.assign({}, TBTC)
 
 const BCH = Object.assign({ network: Bitcoin.networks.bitcoin, addressPrefix: PREFIX_MAINNET }, BCH_COMMON, COMMON_METHODS)
 const TBCH = Object.assign({}, BCH, { network: Bitcoin.networks.testnet, addressPrefix: PREFIX_TESTNET })
-const RBCH = Object.assign({}, BCH, { network: Bitcoin.networks.testnet, addressPrefix: PREFIX_REGTEST })
+const RBCH = Object.assign({}, TBCH)
 
 const LTC = Object.assign({ network: Bitcoin.networks.litecoin }, BTC_COMMON, COMMON_METHODS)
 const TLTC = Object.assign({}, LTC, { network: litecoinTestnet })
-const RLTC = Object.assign({}, LTC, { network: litecoinTestnet })
+const RLTC = Object.assign({}, TLTC)
 
 const GRS = Object.assign({}, BTC,
   {
-    network: grsTestnet,
+    network: grsProdnet,
+    verifyMessageSignature: verifyMessageSignatureGrs,
     isValidAddress: isValidGrsAddress,
     decodeAddress: decodeGrsLegacyAddress,
     toOutputScript: toOutputScriptGrs,
     buildAddressFromScript: buildAddressFromScriptGrs,
-    pubkeyToAddress: pubkeyToAddressGrs
+    hdNodeFromBase58: hdNodeFromBase58Grs,
+    hdNodeToBase58Xpub: hdNodeToBase58XpubGrs,
+    pubkeyToAddress: pubkeyToAddressGrs,
+    hashForSignature: hashForSignatureGrs,
   })
 const TGRS = Object.assign({}, GRS, { network: grsTestnet })
-const RGRS = Object.assign({}, GRS, { network: grsProdnet })
+const RGRS = Object.assign({}, TGRS)
 
 const networks = {
   BTC, TBTC, RBTC,
