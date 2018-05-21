@@ -320,6 +320,11 @@ function signMessageWithKP(keyPair, message) {
   return BitcoinMessage.sign(message, pk, true, this.network.messagePrefix).toString('base64')
 }
 
+function signMessageWithKPGrs(keyPair, message) {
+  var pk = keyPair.d.toBuffer(32)
+  return BitcoinMessage.sign(message, pk, true, this.network.messagePrefix, true).toString('base64')
+}
+
 function verifyMessageSignature(address, signature, message) {
   //return BitcoinMessage.verify(message, address, new Buffer(signature, 'base64'), this.network.messagePrefix)
   const { version, hash } = decodeBitcoinLegacyAddress(address)
@@ -327,7 +332,7 @@ function verifyMessageSignature(address, signature, message) {
 }
 function verifyMessageSignatureGrs(address, signature, message) {
   const { version, hash } = decodeGrsLegacyAddress(address)
-  return BitcoinMessage.verify(message, hash, new Buffer(signature, 'base64'), this.network.messagePrefix)
+  return BitcoinMessage.verify(message, hash, new Buffer(signature, 'base64'), this.network.messagePrefix, true)
 }
 
 function buildAddressFromScript(script) {

@@ -4,22 +4,22 @@ var createHash = require('create-hash')
 var secp256k1 = require('secp256k1')
 var varuint = require('varuint-bitcoin')
 
-function sha256 (b) {
+function sha256(b) {
   return createHash('sha256').update(b).digest()
 }
-function hash256 (buffer) {
+function hash256(buffer) {
   return sha256(sha256(buffer))
 }
-function hash160 (buffer) {
+function hash160(buffer) {
   return createHash('ripemd160').update(sha256(buffer)).digest()
 }
 
-function encodeSignature (signature, recovery, compressed) {
+function encodeSignature(signature, recovery, compressed) {
   if (compressed) recovery += 4
   return Buffer.concat([Buffer.alloc(1, recovery + 27), signature])
 }
 
-function decodeSignature (buffer) {
+function decodeSignature(buffer) {
   if (buffer.length !== 65) throw new Error('Invalid signature length')
 
   var flagByte = buffer.readUInt8(0) - 27
@@ -32,7 +32,7 @@ function decodeSignature (buffer) {
   }
 }
 
-function magicHash (message, messagePrefix) {
+function magicHash(message, messagePrefix, useSingleHash) {
   messagePrefix = messagePrefix || '\u0018Bitcoin Signed Message:\n'
   if (!Buffer.isBuffer(messagePrefix)) messagePrefix = Buffer.from(messagePrefix, 'utf8')
 
@@ -41,20 +41,23 @@ function magicHash (message, messagePrefix) {
   messagePrefix.copy(buffer, 0)
   varuint.encode(message.length, buffer, messagePrefix.length)
   buffer.write(message, messagePrefix.length + messageVISize)
-  return hash256(buffer)
+  if (useSingleHash)
+    return sha256(buffer)
+  else
+    return hash256(buffer)
 }
 
-function sign (message, privateKey, compressed, messagePrefix) {
-  var hash = magicHash(message, messagePrefix)
+function sign(message, privateKey, compressed, messagePrefix, useSingleHash) {
+  var hash = magicHash(message, messagePrefix, useSingleHash)
   var sigObj = secp256k1.sign(hash, privateKey)
   return encodeSignature(sigObj.signature, sigObj.recovery, compressed)
 }
 
-function verify (message, expectedAddressHash, signature, messagePrefix) {
+function verify(message, expectedAddressHash, signature, messagePrefix, useSingleHash) {
   if (!Buffer.isBuffer(signature)) signature = Buffer.from(signature, 'base64')
 
   var parsed = decodeSignature(signature)
-  var hash = magicHash(message, messagePrefix)
+  var hash = magicHash(message, messagePrefix, useSingleHash)
   var publicKey = secp256k1.recover(hash, parsed.signature, parsed.recovery, parsed.compressed)
 
   var actual = hash160(publicKey)
