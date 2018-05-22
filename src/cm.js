@@ -327,7 +327,7 @@ CM.prototype.getCoinDriver = function (coin) {
 }
 
 CM.prototype.decodeCoinAddress = function (coin, address) {
-  return getDriver(coin).decodeAddress(address)
+  return getDriver(coin).decodeCoinAddress(address)
 }
 
 CM.prototype.hashForSignature = function (coin, tx, index, redeemScript, amount, hashFlags) {

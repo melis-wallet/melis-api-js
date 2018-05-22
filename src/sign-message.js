@@ -1,5 +1,5 @@
 var bs58check = require('bs58check')
-var bufferEquals = require('buffer-equals')
+//var bufferEquals = require('buffer-equals')
 var createHash = require('create-hash')
 var secp256k1 = require('secp256k1')
 var varuint = require('varuint-bitcoin')
@@ -59,11 +59,10 @@ function verify(message, expectedAddressHash, signature, messagePrefix, useSingl
   var parsed = decodeSignature(signature)
   var hash = magicHash(message, messagePrefix, useSingleHash)
   var publicKey = secp256k1.recover(hash, parsed.signature, parsed.recovery, parsed.compressed)
-
   var actual = hash160(publicKey)
   //var expected = bs58check.decode(address).slice(1)
-
-  return bufferEquals(actual, expectedAddressHash)
+  //return bufferEquals(actual, expectedAddressHash)
+  return expectedAddressHash.equals(actual)
 }
 
 module.exports = {

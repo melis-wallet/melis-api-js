@@ -45,7 +45,7 @@ const litecoinTestnet = {
 }
 
 const grsTestnet = Object.assign({}, litecoinTestnet, {
-  messagePrefix: '\x1CGroestlcoin Signed Message:\n',
+  messagePrefix: '\u001CGroestlcoin Signed Message:\n',
   scriptHash: 0xc4
 })
 const grsProdnet = Object.assign({}, grsTestnet, {
@@ -100,10 +100,7 @@ function decodeGrsLegacyAddress(base58Address) {
   if (payload.length < 21 || payload.length > 21)
     throw new MelisError("CmInvalidAddressException", "Expected 21 bytes, got " + payload.length)
 
-  const version = payload.readUInt8(0)
-  const hash = payload.slice(1)
-
-  return { version: version, hash: hash }
+  return { version: payload.readUInt8(0), hash: payload.slice(1) }
 }
 
 function decodeBitcoinLegacyAddress(base58Address) {
@@ -315,12 +312,13 @@ function wifToEcPair(wif) {
   return Bitcoin.ECPair.fromWIF(wif, this.network)
 }
 
-function signMessageWithKP(keyPair, message) {
+function signMessageWithKP(keyPair, message, useSingleHash) {
   var pk = keyPair.d.toBuffer(32)
-  return BitcoinMessage.sign(message, pk, true, this.network.messagePrefix).toString('base64')
+  return BitcoinMessage.sign(message, pk, true, this.network.messagePrefix, useSingleHash).toString('base64')
 }
 
 function signMessageWithKPGrs(keyPair, message) {
+  //return signMessageWithKP(keyPair, message, true)
   var pk = keyPair.d.toBuffer(32)
   return BitcoinMessage.sign(message, pk, true, this.network.messagePrefix, true).toString('base64')
 }
@@ -331,7 +329,9 @@ function verifyMessageSignature(address, signature, message) {
   return BitcoinMessage.verify(message, hash, new Buffer(signature, 'base64'), this.network.messagePrefix)
 }
 function verifyMessageSignatureGrs(address, signature, message) {
+  //return verifyMessageSignature(address, signature, message, true)
   const { version, hash } = decodeGrsLegacyAddress(address)
+  console.log("REMOVEME ADDRESS version: " + version + " hash: ", hash)
   return BitcoinMessage.verify(message, hash, new Buffer(signature, 'base64'), this.network.messagePrefix, true)
 }
 
@@ -362,13 +362,13 @@ function extractPubKeyFromOutputScript(script) {
   return null
 }
 
-function prepareAddressSignature(keyPair, prefix) {
+function prepareAddressSignature(keyPair, prefix, signingFunction) {
   var address = pubkeyToAddress(keyPair)
   var message = prefix + address
   return {
     address: address,
     message: message,
-    base64Sig: this.signMessageWithKP(keyPair, message)
+    base64Sig: signingFunction(keyPair, message)
   }
 }
 
@@ -566,9 +566,10 @@ function hdNodeToBase58XpubGrs(hd) {
 
 const COMMON_METHODS = {
   wifToEcPair, signMessageWithKP, verifyMessageSignature,
+  prepareAddressSignature: function (keyPair, prefix) { return prepareAddressSignature(keyPair, prefix, signMessageWithKP) },
   buildAddressFromScript, extractPubKeyFromOutputScript,
   pubkeyToAddress, hdNodeToBase58Xpub,
-  prepareAddressSignature, derivePubKeys, calcP2SH,
+  derivePubKeys, calcP2SH,
   hdNodeFromHexSeed, hdNodeFromBase58, fixKeyNetworkParameters
 }
 
@@ -580,7 +581,7 @@ const BTC_COMMON = {
   isValidAddress: isValidLegacyAddress,
   toScriptSignature: toScriptSignatureLegacy,
   toOutputScript: toOutputScriptLegacy,
-  decodeAddress: decodeBitcoinLegacyAddress,
+  decodeCoinAddress: decodeBitcoinLegacyAddress,
   hashForSignature: hashForSignatureLegacy
 }
 
@@ -590,7 +591,7 @@ const BCH_COMMON = {
   toScriptSignature: toScriptSignatureCash,
   toOutputScript: toOutputScriptCash,
   hashForSignature: hashForSignatureCash,
-  decodeAddress: function (address) { return decodeBitcoinCashAddress(address, this) },
+  decodeCoinAddress: function (address) { return decodeBitcoinCashAddress(address, this) },
   toLegacyAddress: function (address) { return convertBech32CashAddressToLegacy(address, this) },
   toCashAddress: function (address) { return convertLegacyAddressToBech32Cash(address, this) }
 }
@@ -610,9 +611,11 @@ const RLTC = Object.assign({}, TLTC)
 const GRS = Object.assign({}, BTC,
   {
     network: grsProdnet,
+    signMessageWithKP: signMessageWithKPGrs,
     verifyMessageSignature: verifyMessageSignatureGrs,
+    prepareAddressSignature: function (keyPair, prefix) { return prepareAddressSignature(keyPair, prefix, signMessageWithKPGrs) },
     isValidAddress: isValidGrsAddress,
-    decodeAddress: decodeGrsLegacyAddress,
+    decodeCoinAddress: decodeGrsLegacyAddress,
     toOutputScript: toOutputScriptGrs,
     buildAddressFromScript: buildAddressFromScriptGrs,
     hdNodeFromBase58: hdNodeFromBase58Grs,
