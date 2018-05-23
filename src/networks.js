@@ -63,7 +63,8 @@ function isValidLegacyAddress(address) {
     return false
   try {
     const { version, hash } = Bitcoin.address.fromBase58Check(address)
-    // TODO: Verificare correttezza network?
+    if (version != this.network.pubKeyHash && version != this.network.scriptHash)
+      throw new MelisError("CmInvalidAddressException", "Invalid prefix for Bitcoin Address: " + version)
     return true
   } catch (ex) {
     return false
@@ -80,12 +81,12 @@ function isValidBchAddress(address) {
   }
 }
 
-function isValidGrsAddress(address) {
-  if (!address)
+function isValidGrsAddress(base58Address) {
+  const self = this
+  if (!base58Address)
     return false
   try {
-    const { version, hash } = decodeGrsLegacyAddress(address)
-    // TODO: Verificare correttezza network?
+    const { version, hash } = decodeGrsLegacyAddress(base58Address, self)
     return true
   } catch (ex) {
     console.log(ex)
@@ -93,13 +94,20 @@ function isValidGrsAddress(address) {
   }
 }
 
-function decodeGrsLegacyAddress(base58Address) {
+function decodeGrsLegacyAddress(base58Address, self) {
+  if (!self)
+    self = this
   const payload = base58grs.decode(base58Address)
 
   if (payload.length < 21 || payload.length > 21)
     throw new MelisError("CmInvalidAddressException", "Expected 21 bytes, got " + payload.length)
 
-  return { version: payload.readUInt8(0), hash: payload.slice(1) }
+  const version = payload.readUInt8(0)
+  if (version != self.network.pubKeyHash && version != self.network.scriptHash)
+    throw new MelisError("CmInvalidAddressException", "Invalid prefix for GRS Address: " + version)
+
+  const hash = payload.slice(1)
+  return { version, hash }
 }
 
 function decodeBitcoinLegacyAddress(base58Address) {
@@ -115,7 +123,6 @@ function decodeBitcoinCashAddress(address, self) {
   const expectedPrefix = self.addressPrefix
   let decoded   //  { prefix, type, hash }
 
-  console.log("REMOVEME1 address: " + address)
   if (CASH_BECH32_REGEX.test(address))
     decoded = cashaddr.decode(address)
   else if (CASH_BECH32_WITHOUT_PREFIX_LOWERCASE.test(address))
@@ -123,7 +130,6 @@ function decodeBitcoinCashAddress(address, self) {
   else if (CASH_BECH32_WITHOUT_PREFIX_UPPERCASE.test(address))
     decoded = cashaddr.decode(expectedPrefix.toUpperCase() + ":" + address)
 
-  console.log("REMOVEME2 prefix: " + expectedPrefix + " decoded: ", decoded)
   if (decoded)
     if (decoded.prefix === expectedPrefix)
       return decoded
@@ -290,7 +296,7 @@ function toOutputScriptLegacy(address) {
 }
 
 function toOutputScriptGrs(base58Address) {
-  const { version, hash } = decodeGrsLegacyAddress(base58Address)
+  const { version, hash } = decodeGrsLegacyAddress(base58Address, this)
   if (version === this.network.pubKeyHash)
     return bscript.pubKeyHash.output.encode(hash)
   if (version === this.network.scriptHash)
@@ -320,7 +326,7 @@ function verifyMessageSignature(address, signature, message) {
 }
 function verifyMessageSignatureGrs(address, signature, message) {
   //return verifyMessageSignature(address, signature, message, true)
-  const { version, hash } = decodeGrsLegacyAddress(address)
+  const { version, hash } = decodeGrsLegacyAddress(address, this)
   return BitcoinMessage.verify(message, hash, new Buffer(signature, 'base64'), this.network.messagePrefix, true)
 }
 

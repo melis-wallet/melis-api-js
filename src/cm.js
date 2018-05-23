@@ -335,7 +335,6 @@ CM.prototype.hashForSignature = function (coin, tx, index, redeemScript, amount,
 }
 
 CM.prototype.isValidAddress = function (coin, address) {
-  console.log("#REMOVEME isValid: " + address + " on coin " + coin)
   return getDriver(coin).isValidAddress(address)
 }
 
