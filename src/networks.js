@@ -22,14 +22,14 @@ const PREFIX_MAINNET = "bitcoincash"
 const PREFIX_TESTNET = "bchtest"
 const PREFIX_REGTEST = "bchreg"
 
-const CASH_BECH32_REGEX = new RegExp("(("
+const CASH_BECH32_REGEX = new RegExp("^(("
   + PREFIX_MAINNET + ")|(" + PREFIX_MAINNET.toUpperCase() + ")|("
   + PREFIX_TESTNET + ")|(" + PREFIX_TESTNET.toUpperCase() + ")|("
   + PREFIX_REGTEST + ")|(" + PREFIX_REGTEST.toUpperCase() + ")"
-  + "):(([" + C.BECH32_CHARSET + "]{42})|([" + C.BECH32_CHARSET.toUpperCase() + "]{42}))")
+  + "):(([" + C.BECH32_CHARSET + "]{42})|([" + C.BECH32_CHARSET.toUpperCase() + "]{42}))$")
 
-const CASH_BECH32_WITHOUT_PREFIX_LOWERCASE = new RegExp("[" + C.BECH32_CHARSET + "]{42}")
-const CASH_BECH32_WITHOUT_PREFIX_UPPERCASE = new RegExp("[" + C.BECH32_CHARSET.toUpperCase() + "]{42}")
+const CASH_BECH32_WITHOUT_PREFIX_LOWERCASE = new RegExp("^[" + C.BECH32_CHARSET + "]{42}$")
+const CASH_BECH32_WITHOUT_PREFIX_UPPERCASE = new RegExp("^[" + C.BECH32_CHARSET.toUpperCase() + "]{42}$")
 
 const SIGHASH_BITCOINCASHBIP143 = 0x40
 
@@ -73,8 +73,7 @@ function isValidLegacyAddress(address) {
 function isValidBchAddress(address) {
   const self = this
   try {
-    const { prefix, type, hash } = decodeBitcoinCashAddress(address, self)
-    // TODO: Verificare correttezza network?
+    const decoded = decodeBitcoinCashAddress(address, self) // { prefix, type, hash }
     return true
   } catch (ex) {
     return false
@@ -113,32 +112,23 @@ function decodeBitcoinCashAddress(address, self) {
   if (C.LEGACY_BITCOIN_REGEX.test(address))
     return decodeBitcoinLegacyAddress(address)
 
-  if (CASH_BECH32_REGEX.test(address)) {
-    //const { prefix, type, hash } = cashaddr.decode(address)
-    const decoded = cashaddr.decode(address)
-    if (decoded.prefix !== self.addressPrefix)
-      throw new MelisError("CmInvalidAddressException", "Invalid network for Bitcoin Cash Address -- expected: " + self.addressPrefix + " got: " + prefix)
-    //return Buffer.from(hash)
-    return decoded
-  }
+  const expectedPrefix = self.addressPrefix
+  let decoded   //  { prefix, type, hash }
 
-  if (CASH_BECH32_WITHOUT_PREFIX_LOWERCASE.test(address)) {
-    //const { prefix, type, hash } = cashaddr.decode(self.addressPrefix + ":" + address)
-    //return Buffer.from(hash)
-    const decoded = cashaddr.decode(self.addressPrefix + ":" + address)
-    if (decoded.prefix !== self.addressPrefix)
-      throw new MelisError("CmInvalidAddressException", "Invalid network for Bitcoin Cash Address -- expected: " + self.addressPrefix + " got: " + prefix)
-    return decoded
-  }
+  console.log("REMOVEME1 address: " + address)
+  if (CASH_BECH32_REGEX.test(address))
+    decoded = cashaddr.decode(address)
+  else if (CASH_BECH32_WITHOUT_PREFIX_LOWERCASE.test(address))
+    decoded = cashaddr.decode(expectedPrefix + ":" + address)
+  else if (CASH_BECH32_WITHOUT_PREFIX_UPPERCASE.test(address))
+    decoded = cashaddr.decode(expectedPrefix.toUpperCase() + ":" + address)
 
-  if (CASH_BECH32_WITHOUT_PREFIX_UPPERCASE.test(address)) {
-    // const { prefix, type, hash } = cashaddr.decode(self.addressPrefix.toUpperCase() + ":" + address)
-    // return Buffer.from(hash)
-    const decoded = cashaddr.decode(self.addressPrefix.toUpperCase() + ":" + address)
-    if (decoded.prefix !== self.addressPrefix)
-      throw new MelisError("CmInvalidAddressException", "Invalid network for Bitcoin Cash Address -- expected: " + self.addressPrefix + " got: " + prefix)
-    return decoded
-  }
+  console.log("REMOVEME2 prefix: " + expectedPrefix + " decoded: ", decoded)
+  if (decoded)
+    if (decoded.prefix === expectedPrefix)
+      return decoded
+    else
+      throw new MelisError("CmInvalidAddressException", "Invalid network for Bitcoin Cash Address -- expected: " + expectedPrefix + " got: " + decoded.prefix)
 
   throw new MelisError("CmInvalidAddressException", "Unknown address format: " + address)
 }
@@ -331,7 +321,6 @@ function verifyMessageSignature(address, signature, message) {
 function verifyMessageSignatureGrs(address, signature, message) {
   //return verifyMessageSignature(address, signature, message, true)
   const { version, hash } = decodeGrsLegacyAddress(address)
-  console.log("REMOVEME ADDRESS version: " + version + " hash: ", hash)
   return BitcoinMessage.verify(message, hash, new Buffer(signature, 'base64'), this.network.messagePrefix, true)
 }
 
@@ -602,7 +591,7 @@ const RBTC = Object.assign({}, TBTC)
 
 const BCH = Object.assign({ network: Bitcoin.networks.bitcoin, addressPrefix: PREFIX_MAINNET }, BCH_COMMON, COMMON_METHODS)
 const TBCH = Object.assign({}, BCH, { network: Bitcoin.networks.testnet, addressPrefix: PREFIX_TESTNET })
-const RBCH = Object.assign({}, TBCH)
+const RBCH = Object.assign({}, TBCH, { addressPrefix: PREFIX_REGTEST })
 
 const LTC = Object.assign({ network: Bitcoin.networks.litecoin }, BTC_COMMON, COMMON_METHODS)
 const TLTC = Object.assign({}, LTC, { network: litecoinTestnet })
