@@ -58,6 +58,10 @@ const grsProdnet = Object.assign({}, grsTestnet, {
   wif: 0x80
 })
 
+const NETWORKS = Object.assign({ litecoinTestnet, grsTestnet, grsProdnet }, Bitcoin.networks)
+const NETWORKS_ARRAY = []
+Object.keys(NETWORKS).forEach(net => NETWORKS_ARRAY.push(NETWORKS[net]))
+
 function isValidLegacyAddress(address) {
   if (!address)
     return false
@@ -111,9 +115,7 @@ function decodeGrsLegacyAddress(base58Address, self) {
 }
 
 function decodeBitcoinLegacyAddress(base58Address) {
-  return Bitcoin.address.fromBase58Check(base58Address)
-  // const { version, hash } = Bitcoin.address.fromBase58Check(base58Address)
-  // return hash
+  return Bitcoin.address.fromBase58Check(base58Address) // { version, hash }
 }
 
 function decodeBitcoinCashAddress(address, self) {
@@ -330,20 +332,22 @@ function verifyMessageSignatureGrs(address, signature, message) {
   return BitcoinMessage.verify(message, hash, new Buffer(signature, 'base64'), this.network.messagePrefix, true)
 }
 
-function buildAddressFromScript(script) {
-  return Bitcoin.address.fromOutputScript(script, this.network)
+function buildAddressFromScript(outScript) {
+  const self = this
+  return Bitcoin.address.fromOutputScript(outScript, self.network)
 }
 
 function buildAddressFromScriptGrs(outputScript) {
+  const self = this
   if (bscript.pubKeyHash.output.check(outputScript))
-    return base58grs.encode(bscript.compile(outputScript).slice(3, 23), this.network.pubKeyHash)
+    return base58grs.encode(bscript.compile(outputScript).slice(3, 23), self.network.pubKeyHash)
   if (bscript.scriptHash.output.check(outputScript))
-    return base58grs.encode(bscript.compile(outputScript).slice(2, 22), this.network.scriptHash)
+    return base58grs.encode(bscript.compile(outputScript).slice(2, 22), self.network.scriptHash)
   throw new MelisError("CmUnexpectedException", "Unknown script template: " + outputScript)
 }
 
 function derivePubKeys(xpubs, chain, hdIndex) {
-  return derivePubKeys_internal(xpubs, chain, hdIndex, this.network)
+  return derivePubKeys_internal(this, xpubs, chain, hdIndex)
 }
 
 function extractPubKeyFromOutputScript(script) {
@@ -367,11 +371,12 @@ function prepareAddressSignature(keyPair, prefix, signingFunction) {
   }
 }
 
-function derivePubKeys_internal(xpubs, chain, hdIndex, network) {
-  var keys = []
+function derivePubKeys_internal(self, xpubs, chain, hdIndex) {
+  const keys = []
   for (var i = 0; i < xpubs.length; i++) {
-    var hd = Bitcoin.HDNode.fromBase58(xpubs[i], network)
-    var key = hd.derive(chain).derive(hdIndex)
+    //const hd = Bitcoin.HDNode.fromBase58(xpubs[i], network)
+    const hd = self.hdNodeFromBase58(xpubs[i])
+    const key = hd.derive(chain).derive(hdIndex)
     keys.push(key.getPublicKeyBuffer().toString('hex'))
   }
   return keys
@@ -380,7 +385,7 @@ function derivePubKeys_internal(xpubs, chain, hdIndex, network) {
 function createRedeemScript(keys, minSignatures, useCheckVerify) {
   if (!keys || minSignatures <= 0 || minSignatures > keys.length)
     return null
-  var script
+  let script
   if (keys.length === 1) {
     // sanity check: should never happen because not a P2SH script
     if (!useCheckVerify)
@@ -402,35 +407,40 @@ function createRedeemScript(keys, minSignatures, useCheckVerify) {
 }
 
 function calcP2SH(accountInfo, chain, hdIndex) {
-  var scriptParams = accountInfo.scriptParams
-  var script
-  var hasMandatoryKeys = scriptParams.mandatoryKeys && scriptParams.mandatoryKeys.length > 0
-  var hasOtherKeys = scriptParams.otherKeys && scriptParams.otherKeys.length > 0
+  const self = this
+  const scriptParams = accountInfo.scriptParams
+  const hasMandatoryKeys = scriptParams.mandatoryKeys && scriptParams.mandatoryKeys.length > 0
+  const hasOtherKeys = scriptParams.otherKeys && scriptParams.otherKeys.length > 0
+  let script
   logger.log("minSignatures: " + accountInfo.minSignatures + " hasMandatoryKeys: " + hasMandatoryKeys + " hasOtherKeys: " + hasOtherKeys + " scriptParams: ", scriptParams)
   if (hasMandatoryKeys) {
     logger.log("[calcP2SH] #mandatoryKeys: " + scriptParams.mandatoryKeys.length, scriptParams.mandatoryKeys)
-    script = createRedeemScript(derivePubKeys_internal(scriptParams.mandatoryKeys, chain, hdIndex, this.network), scriptParams.mandatoryKeys.length, hasOtherKeys)
+    const mandatoryPubKeys = derivePubKeys_internal(self, scriptParams.mandatoryKeys, chain, hdIndex)
+    script = createRedeemScript(mandatoryPubKeys, scriptParams.mandatoryKeys.length, hasOtherKeys)
     if (hasOtherKeys) {
       logger.log("[calcP2SH] #otherKeys: " + scriptParams.otherKeys.length, scriptParams.otherKeys)
-      var minimumNonMandatorySignatures = accountInfo.minSignatures - scriptParams.mandatoryKeys.length
+      let minimumNonMandatorySignatures = accountInfo.minSignatures - scriptParams.mandatoryKeys.length
       if (accountInfo.serverMandatory)
         minimumNonMandatorySignatures++
       if (minimumNonMandatorySignatures <= 0)
         throwUnexpectedEx("Unable to create address for account: unexpected signature scheme (minimumNonMandatorySignatures=" + minimumNonMandatorySignatures + ")")
-      script += " " + createRedeemScript(derivePubKeys_internal(scriptParams.otherKeys, chain, hdIndex, this.network), minimumNonMandatorySignatures, false)
+      const otherPubKeys = derivePubKeys_internal(self, scriptParams.otherKeys, chain, hdIndex)
+      script += " " + createRedeemScript(otherPubKeys, minimumNonMandatorySignatures, false)
     }
   } else {
     if (!hasOtherKeys)
       throwUnexpectedEx("Unexpected account info: no mandatory and other keys")
     logger.log("[calcP2SH] #otherKeys: " + scriptParams.otherKeys.length, scriptParams.otherKeys)
-    script = createRedeemScript(derivePubKeys_internal(scriptParams.otherKeys, chain, hdIndex, this.network), accountInfo.minSignatures, false)
+    const pubKeys = derivePubKeys_internal(self, scriptParams.otherKeys, chain, hdIndex)
+    script = createRedeemScript(pubKeys, accountInfo.minSignatures, false)
   }
   logger.log("[calcP2SH] script: " + script)
-  var redeemScript = bscript.fromASM(script)
-  var scriptPubKey = bscript.scriptHash.output.encode(bcrypto.hash160(redeemScript))
+  const redeemScript = bscript.fromASM(script)
+  const scriptPubKey = bscript.scriptHash.output.encode(bcrypto.hash160(redeemScript))
   //logger.log("redeemScript: ", Bitcoin.script.toASM(redeemScript))
   //logger.log("scriptPubKey: ", Bitcoin.script.toASM(scriptPubKey))
-  return Bitcoin.address.fromOutputScript(scriptPubKey, this.network)
+  //return Bitcoin.address.fromOutputScript(scriptPubKey, this.network)
+  return self.buildAddressFromScript(scriptPubKey)
 }
 
 function hdNodeFromHexSeed(seed) {
@@ -438,7 +448,7 @@ function hdNodeFromHexSeed(seed) {
 }
 
 function hdNodeFromBase58(xpub) {
-  return Bitcoin.HDNode.fromBase58(xpub, this.network)
+  return Bitcoin.HDNode.fromBase58(xpub, NETWORKS_ARRAY)
 }
 
 function hdNodeFromBase58Grs(hd_base58_ser) {
@@ -447,16 +457,16 @@ function hdNodeFromBase58Grs(hd_base58_ser) {
 
   // 4 bytes: version bytes
   var version = buffer.readUInt32BE(0)
-  const network = this.network
+  //const network = this.network
 
   // // list of networks?
   // if (Array.isArray(Bitcoin.networks)) {
-  //   network = Bitcoin.networks.filter(function (x) {
-  //     return version === x.bip32.private ||
-  //       version === x.bip32.public
-  //   }).pop()
+  let network = NETWORKS_ARRAY.filter(x => {
+    return version === x.bip32.private ||
+      version === x.bip32.public
+  }).pop()
 
-  //   if (!network) throw new Error('Unknown network version')
+  if (!network) throw new Error('Unknown GRS network version')
 
   //   // otherwise, assume a network object (or default to bitcoin)
   // } else {
@@ -562,10 +572,10 @@ function hdNodeToBase58XpubGrs(hd) {
 const COMMON_METHODS = {
   wifToEcPair, signMessageWithKP, verifyMessageSignature,
   prepareAddressSignature: function (keyPair, prefix) { return prepareAddressSignature(keyPair, prefix, signMessageWithKP) },
-  buildAddressFromScript, extractPubKeyFromOutputScript,
-  pubkeyToAddress, hdNodeToBase58Xpub,
-  derivePubKeys, calcP2SH,
-  hdNodeFromHexSeed, hdNodeFromBase58, fixKeyNetworkParameters
+  buildAddressFromScript,//: function (outScript) { return buildAddressFromScript(this, outScript) },
+  extractPubKeyFromOutputScript, pubkeyToAddress,
+  hdNodeFromHexSeed, hdNodeFromBase58, hdNodeToBase58Xpub,
+  derivePubKeys, calcP2SH, fixKeyNetworkParameters
 }
 
 const BCH_CONSTS = {
@@ -591,15 +601,15 @@ const BCH_COMMON = {
   toCashAddress: function (address) { return convertLegacyAddressToBech32Cash(address, this) }
 }
 
-const BTC = Object.assign({ network: Bitcoin.networks.bitcoin }, BTC_COMMON, COMMON_METHODS)
-const TBTC = Object.assign({}, BTC, { network: Bitcoin.networks.testnet })
+const BTC = Object.assign({ network: NETWORKS.bitcoin }, BTC_COMMON, COMMON_METHODS)
+const TBTC = Object.assign({}, BTC, { network: NETWORKS.testnet })
 const RBTC = Object.assign({}, TBTC)
 
-const BCH = Object.assign({ network: Bitcoin.networks.bitcoin, addressPrefix: PREFIX_MAINNET }, BCH_COMMON, COMMON_METHODS)
-const TBCH = Object.assign({}, BCH, { network: Bitcoin.networks.testnet, addressPrefix: PREFIX_TESTNET })
+const BCH = Object.assign({ network: NETWORKS.bitcoin, addressPrefix: PREFIX_MAINNET }, BCH_COMMON, COMMON_METHODS)
+const TBCH = Object.assign({}, BCH, { network: NETWORKS.testnet, addressPrefix: PREFIX_TESTNET })
 const RBCH = Object.assign({}, TBCH, { addressPrefix: PREFIX_REGTEST })
 
-const LTC = Object.assign({ network: Bitcoin.networks.litecoin }, BTC_COMMON, COMMON_METHODS)
+const LTC = Object.assign({ network: NETWORKS.litecoin }, BTC_COMMON, COMMON_METHODS)
 const TLTC = Object.assign({}, LTC, { network: litecoinTestnet })
 const RLTC = Object.assign({}, TLTC)
 
@@ -612,7 +622,7 @@ const GRS = Object.assign({}, BTC,
     isValidAddress: isValidGrsAddress,
     decodeCoinAddress: decodeGrsLegacyAddress,
     toOutputScript: toOutputScriptGrs,
-    buildAddressFromScript: buildAddressFromScriptGrs,
+    buildAddressFromScript: buildAddressFromScriptGrs, //: function (outScript) { return buildAddressFromScriptGrs(this, outScript) },
     hdNodeFromBase58: hdNodeFromBase58Grs,
     hdNodeToBase58Xpub: hdNodeToBase58XpubGrs,
     pubkeyToAddress: pubkeyToAddressGrs,
@@ -621,11 +631,11 @@ const GRS = Object.assign({}, BTC,
 const TGRS = Object.assign({}, GRS, { network: grsTestnet })
 const RGRS = Object.assign({}, TGRS)
 
-const networks = {
+const drivers = {
   BTC, TBTC, RBTC,
   BCH, TBCH, RBCH,
   LTC, TLTC, RLTC,
   GRS, TGRS, RGRS,
 }
 
-module.exports = networks
+module.exports = drivers
