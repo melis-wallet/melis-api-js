@@ -748,7 +748,6 @@ CM.prototype.connect_internal = function (stompEndpoint, config) {
     self.connected = true
     self.connecting = false
     self.paused = false
-    emitEvent(self, C.EVENT_CONNECT)
 
     self.stompClient.subscribe(C.QUEUE_RPC_REPLY, function (message) {
       rpcReplyHandler(self, message)
@@ -792,6 +791,7 @@ CM.prototype.connect_internal = function (stompEndpoint, config) {
       if (self.cmConfiguration.maxKeepAliveSeconds && self.cmConfiguration.maxKeepAliveSeconds < self.maxKeepAliveSeconds)
         self.maxKeepAliveSeconds = self.cmConfiguration.maxKeepAliveSeconds
       enableKeepAliveFunc(self)
+      emitEvent(self, C.EVENT_CONNECT)
       deferred.resolve(self.cmConfiguration)
     })
 
