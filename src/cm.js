@@ -1619,7 +1619,8 @@ CM.prototype.isAddressOfAccount = function (account, accountAddress) {
   } catch (err) {
     return false
   }
-  return decodedAddr.hash.equals(decodedAa.hash)
+  this.log("[isAddressesOfAccount] addr.version: " + decodedAddr.version + " decodedAa.version: " + decodedAa.version + " test: " + (decodedAddr.version == decodedAa.version))
+  return decodedAddr.hash.equals(decodedAa.hash) && decodedAddr.version == decodedAa.version
 }
 
 // updates account data if missing or incomplete
@@ -1693,7 +1694,7 @@ CM.prototype.analyzeTx = function (state, options) {
     for (j = 0; j < changes.length; j++) {
       const decodedChange = this.decodeCoinAddress(coin, changes[j].aa.address)
       //if (toAddr === changes[j].aa.address) {
-      if (decodedTo.hash.equals(decodedChange.hash)) {
+      if (decodedTo.hash.equals(decodedChange.hash) && decodedTo.version === decodedChange.version) {
         amountToChange += output.value
         isChange = true
         break
@@ -1708,7 +1709,7 @@ CM.prototype.analyzeTx = function (state, options) {
         if (recipient.pubId || recipient.validated)
           continue
         //if (toAddr === recipient.address) {
-        if (decodedTo.hash.equals(recipient.decodedAddr.hash)) {
+        if (decodedTo.hash.equals(recipient.decodedAddr.hash) && decodedTo.version === recipient.decodedAddr.version) {
           if (recipient.isRemainder || output.value === recipient.amount) {
             amountToRecipients += output.value
             isRecipient = true

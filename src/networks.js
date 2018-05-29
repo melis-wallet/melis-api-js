@@ -46,7 +46,8 @@ const litecoinTestnet = {
 
 const grsTestnet = Object.assign({}, litecoinTestnet, {
   messagePrefix: '\u001CGroestlcoin Signed Message:\n',
-  scriptHash: 0xc4
+  pubKeyHash: 0x6F, // 111
+  scriptHash: 0xc4 // 196
 })
 const grsProdnet = Object.assign({}, grsTestnet, {
   bip32: {
@@ -134,7 +135,7 @@ function decodeBitcoinCashAddress(address, self) {
 
   if (decoded)
     if (decoded.prefix === expectedPrefix)
-      return decoded
+      return Object.assign(decoded, { version: decoded.type === "P2SH" ? self.network.scriptHash : self.network.pubKeyHash })
     else
       throw new MelisError("CmInvalidAddressException", "Invalid network for Bitcoin Cash Address -- expected: " + expectedPrefix + " got: " + decoded.prefix)
 
