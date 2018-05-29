@@ -135,7 +135,10 @@ function decodeBitcoinCashAddress(address, self) {
 
   if (decoded)
     if (decoded.prefix === expectedPrefix)
-      return Object.assign(decoded, { version: decoded.type === "P2SH" ? self.network.scriptHash : self.network.pubKeyHash })
+      return Object.assign(decoded, {
+        version: decoded.type === "P2SH" ? self.network.scriptHash : self.network.pubKeyHash,
+        hash: Buffer.from(decoded.hash)
+      })
     else
       throw new MelisError("CmInvalidAddressException", "Invalid network for Bitcoin Cash Address -- expected: " + expectedPrefix + " got: " + decoded.prefix)
 
