@@ -1486,7 +1486,7 @@ CM.prototype.ptxVerifyFieldsSignature = function (account, ptx) {
   return this.ensureAccountInfo(account).then(function (account) {
     if (!self.ptxHasFieldsSignature(ptx))
       throwInvalidSignatureEx("PTX owner signature missing")
-    const xpub = account.xpub
+    let xpub = account.xpub
     if (account.numCosigners > 0) {
       var cosignerData = self.peekAccountInfo(account).cosigners.find(function (cosigner) {
         return cosigner.pubId === ptx.accountPubId
