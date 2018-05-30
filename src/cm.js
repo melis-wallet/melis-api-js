@@ -6,7 +6,7 @@ const Stomp = require('webstomp-client')
 const WebSocketClient = require('ws')
 const SockJS = require('sockjs-client')
 const Bitcoin = require('bitcoinjs-lib')
-const isNode = require('detect-node')
+const isNode = (require('detect-node') && !('electron' in global.process.versions))
 const randomBytes = require('randombytes')
 const sjcl = require('sjcl-all')
 const C = require("./cm-constants")
@@ -152,6 +152,7 @@ function initializePrivateFields(target) {
   target.connected = false
   target.connecting = false
   target.paused = false
+  target.stompClient = null
 }
 
 function addPagingInfo(pars, pagingInfo) {
@@ -325,8 +326,8 @@ CM.prototype.getCoinDriver = function (coin) {
   return getDriver(coin)
 }
 
-CM.prototype.coinAddressToBytes = function (coin, address) {
-  return getDriver(coin).getAddressBytes(address)
+CM.prototype.decodeCoinAddress = function (coin, address) {
+  return getDriver(coin).decodeCoinAddress(address)
 }
 
 CM.prototype.hashForSignature = function (coin, tx, index, redeemScript, amount, hashFlags) {
@@ -353,8 +354,8 @@ CM.prototype.signMessageWithKP = function (coin, keyPair, message) {
   return getDriver(coin).signMessageWithKP(keyPair, message)
 }
 
-CM.prototype.verifyBitcoinMessageSignature = function (coin, address, signature, message) {
-  return getDriver(coin).verifyBitcoinMessageSignature(address, signature, message)
+CM.prototype.verifyMessageSignature = function (coin, address, signature, message) {
+  return getDriver(coin).verifyMessageSignature(address, signature, message)
 }
 
 CM.prototype.signMessageWithAA = function (account, aa, message) {
@@ -364,12 +365,12 @@ CM.prototype.signMessageWithAA = function (account, aa, message) {
   return this.signMessageWithKP(account.coin, key.keyPair, message)
 }
 
-CM.prototype.decodeAddressFromScript = function (coin, script) {
-  return getDriver(coin).decodeAddressFromScript(script)
+CM.prototype.buildAddressFromScript = function (coin, script) {
+  return getDriver(coin).buildAddressFromScript(script)
 }
 
-CM.prototype.addressFromPubKey = function (coin, pubKey) {
-  return getDriver(coin).addressFromPubKey(pubKey)
+CM.prototype.pubkeyToAddress = function (coin, key) {
+  return getDriver(coin).pubkeyToAddress(key)
 }
 
 CM.prototype.prepareAddressSignature = function (coin, keyPair, prefix) {
@@ -398,6 +399,12 @@ CM.prototype.hdNodeFromBase58 = function (xpub, coin) {
   if (!coin)
     coin = this.getDefaultPlatformCoin()
   return getDriver(coin).hdNodeFromBase58(xpub)
+}
+
+CM.prototype.hdNodeToBase58Xpub = function (hd, coin) {
+  if (!coin)
+    coin = this.getDefaultPlatformCoin()
+  return getDriver(coin).hdNodeToBase58Xpub(hd)
 }
 
 CM.prototype.updateNetworkFees = function (coin) {
@@ -617,6 +624,7 @@ function stompDisconnected(self, frame, deferred) {
   var wasConnected = self.connected
   var wasPaused = self.paused
   self.log("[CM] stompDisconnected wasConnected: " + wasConnected + " wasPaused: " + wasPaused)// + " err.code: " + frame.code + " err.wasClean: " + frame.wasClean)
+  self.stompClient = null
   self.connected = false
   self.connecting = false
   self.paused = false
@@ -740,7 +748,6 @@ CM.prototype.connect_internal = function (stompEndpoint, config) {
     self.connected = true
     self.connecting = false
     self.paused = false
-    emitEvent(self, C.EVENT_CONNECT)
 
     self.stompClient.subscribe(C.QUEUE_RPC_REPLY, function (message) {
       rpcReplyHandler(self, message)
@@ -784,6 +791,7 @@ CM.prototype.connect_internal = function (stompEndpoint, config) {
       if (self.cmConfiguration.maxKeepAliveSeconds && self.cmConfiguration.maxKeepAliveSeconds < self.maxKeepAliveSeconds)
         self.maxKeepAliveSeconds = self.cmConfiguration.maxKeepAliveSeconds
       enableKeepAliveFunc(self)
+      emitEvent(self, C.EVENT_CONNECT)
       deferred.resolve(self.cmConfiguration)
     })
 
@@ -800,8 +808,9 @@ CM.prototype.disconnect = function () {
   if (!this.connected)
     return Q()
   var deferred = Q.defer()
-  this.stompClient.disconnect(function (res) {
-    //self.log("[STOMP] Disconnect: " + res)
+  this.stompClient.disconnect(res => {
+    self.log("[CM] STOMP Client disconnect: " + res)
+    this.stompClient = null
     initializePrivateFields(self)
     deferred.resolve(res)
   })
@@ -1087,13 +1096,11 @@ CM.prototype.walletRegister = function (seed, params) {
     return Q.reject(ex)
   }
   return self.rpc(C.WALLET_REGISTER, {
-    xpub: loginKey.neutered().toBase58(),
-    //id: loginKey.getPublicKeyBuffer().toString('hex'),
-    //chainCode: loginKey.chainCode.toString('hex'),
+    xpub: self.hdNodeToBase58Xpub(loginKey),
     sessionName: params.sessionName,
     deviceId: params.deviceId,
     usePinAsTfa: params.usePinAsTfa
-  }).then(function (res) {
+  }).then(res => {
     self.log("[CM] walletRegister: ", res)
     walletOpen(self, hd, res.wallet)
     self.lastOpenParams = { seed: seed, sessionName: params.sessionName, deviceId: params.deviceId }
@@ -1203,7 +1210,7 @@ CM.prototype.accountCreate = function (params) {
     this.log("[CM] accountCreate coin: " + params.coin + " accountNum: " + params.accountNum)
     params.accountNum = accountNum
     var accountHd = self.deriveMyHdAccount(accountNum, undefined, undefined, params.coin)
-    params.xpub = accountHd.neutered().toBase58()
+    params.xpub = self.hdNodeToBase58Xpub(accountHd, params.coin)
     return self.rpc(C.ACCOUNT_REGISTER, params)
   }).then(res => {
     updateAccount(self, res.account, res.balance, res.accountInfo)
@@ -1232,7 +1239,7 @@ CM.prototype.accountJoin = function (params) {
     return self.rpc(C.ACCOUNT_JOIN, {
       code: params.code,
       accountNum: params.accountNum,
-      xpub: accountHd.neutered().toBase58(),
+      xpub: self.hdNodeToBase58Xpub(accountHd, params.coin),
       meta: params.meta
     })
   }).then(res => {
@@ -1458,11 +1465,6 @@ CM.prototype.ptxSignFields = function (account, ptx) {
   var num1 = simpleRandomInt(C.MAX_SUBPATH), num2 = simpleRandomInt(C.MAX_SUBPATH)
   var node = this.deriveMyHdAccount(account.num, num1, num2, account.coin)
   var sig = this.signMessageWithKP(account.coin, node.keyPair, ptx.rawTx)
-  //return { keyPath: [num1, num2], base64Sig: sig.toString('base64')}
-  //    var verified = self.verifyMessage(node.keyPair.getAddress(), sig, msg)
-  //    this.log("our xpub: : " + ptx.accountPubId + " path: " + keyPath[0] + " " + keyPath[1])
-  //    this.log("address: " + node.keyPair.getAddress() + " msg: " + msg + " SIG: " + sig.toString('base64') + " VERIFY: " + verified)
-  //    var keyMessage = {keyPath: keyPath, ptxSig: sig.toString('base64'), type: 'fullAES'}
   return this.rpc(C.ACCOUNT_PTX_SIGN_FIELDS, {
     data: ptx.id,
     num1: num1,
@@ -1480,11 +1482,11 @@ CM.prototype.ptxHasFieldsSignature = function (ptx) {
 
 // TODO: add verification of cosigners public key
 CM.prototype.ptxVerifyFieldsSignature = function (account, ptx) {
-  var self = this
+  const self = this
   return this.ensureAccountInfo(account).then(function (account) {
     if (!self.ptxHasFieldsSignature(ptx))
       throwInvalidSignatureEx("PTX owner signature missing")
-    var xpub = account.xpub
+    const xpub = account.xpub
     if (account.numCosigners > 0) {
       var cosignerData = self.peekAccountInfo(account).cosigners.find(function (cosigner) {
         return cosigner.pubId === ptx.accountPubId
@@ -1493,15 +1495,16 @@ CM.prototype.ptxVerifyFieldsSignature = function (account, ptx) {
         throwInvalidSignatureEx("PTX owner not found: " + ptx.accountPubId)
       xpub = cosignerData.xpub
     }
-    var keyMessage = ptx.meta.ownerSig
+    const keyMessage = ptx.meta.ownerSig
     self.log("ptx keyMessage:", keyMessage)
-    var keyPath = keyMessage.keyPath
+    const keyPath = keyMessage.keyPath
     const hd = self.hdNodeFromBase58(xpub, account.coin)
-    var node = hd.derive(keyPath[0]).derive(keyPath[1])
-    var address = node.keyPair.getAddress()
+    const node = hd.derive(keyPath[0]).derive(keyPath[1])
+    //var address = node.keyPair.getAddress()
+    const address = self.pubkeyToAddress(account.coin, node.keyPair)
     var ptxSigVerified = false
     try {
-      ptxSigVerified = self.verifyBitcoinMessageSignature(account.coin, address, keyMessage.ptxSig, ptx.rawTx)
+      ptxSigVerified = self.verifyMessageSignature(account.coin, address, keyMessage.ptxSig, ptx.rawTx)
       self.log("[CM] ptx#" + ptx.id + " address: " + address + " VERIFIED: " + ptxSigVerified)
     } catch (ex) {
       self.log("verifyBitcoinMessageEx: ", ex)
@@ -1523,18 +1526,19 @@ CM.prototype.ptxsGet = function (account, filter, pagingInfo) {
 }
 
 CM.prototype.signaturesPrepare = function (params) {
-  // this.log("[CM signaturesPrepare] txId: " + ptx.id)
-  var self = this
-  var hd = params.hd || this.hdWallet
-  var coin = params.coin
-  var accountNum = params.accountNum
-  var progressCallback = params.progressCallback
-  var tx = this.decodeTxFromBuffer(Buffer.from(params.rawTx, 'hex'))
-  var inputs = params.inputs
-  var signatures = []
+  const self = this
+  const hd = params.hd || this.hdWallet
+  const coin = params.coin
+  const accountNum = params.accountNum
+  const progressCallback = params.progressCallback
+  const tx = this.decodeTxFromBuffer(Buffer.from(params.rawTx, 'hex'))
+  const inputs = params.inputs
+  const signatures = []
+  const deferred = Q.defer()
+
   const signInput = function (i) {
-    var inputInfo = inputs[i]
-    self.log("signInput #" + i + " account#: " + accountNum + " info: '" + JSON.stringify(inputInfo) + "' coin: " + coin)
+    const inputInfo = inputs[i]
+    self.log("signInput #" + i + " account#: " + accountNum + " coin: " + coin + " intputInfo:", inputInfo)
     if (!inputInfo)
       throwUnexpectedEx("Internal error: can't find info data for tx input #" + i)
     const accountAddress = inputInfo.aa
@@ -1543,17 +1547,16 @@ CM.prototype.signaturesPrepare = function (params) {
     if (accountAddress.redeemScript)
       redeemScript = Buffer.from(accountAddress.redeemScript, "hex")
     else
-      redeemScript = self.toOutputScript(coin, key.getAddress()) // o inputInfo.script
-    //self.log("aa.script " + accountAddress.redeemScript)
+      redeemScript = self.toOutputScript(coin, self.pubkeyToAddress(coin, key)) // o inputInfo.script
     const hashForSignature = self.hashForSignature(coin, tx, i, redeemScript, inputInfo.amount, Bitcoin.Transaction.SIGHASH_ALL)
     const signature = key.sign(hashForSignature)
     //self.log("[signed input #" + i + "] redeemScript: " + redeemScript.buffer.toString('hex') +
     //        " hashForSignature: " + hashForSignature.toString('hex')) // + " sig: " + sig.toString('hex'))
     signatures.push({ key: key, sig: signature })
   }
-  var deferred = Q.defer()
-  var f = function (i) {
-    var progressInfo = { currStep: i, totalSteps: tx.ins.length }
+
+  const f = function (i) {
+    const progressInfo = { currStep: i, totalSteps: tx.ins.length }
     deferred.notify(progressInfo)
     var promise = null
     if (progressCallback)
@@ -1568,6 +1571,7 @@ CM.prototype.signaturesPrepare = function (params) {
         f(i + 1)
     })
   }
+
   process.nextTick(function () {
     f(0)
   })
@@ -1600,17 +1604,23 @@ CM.prototype.isAddressOfAccount = function (account, accountAddress) {
   var addr
   switch (account.type) {
     case C.TYPE_PLAIN_HD:
-      var key = this.deriveMyHdAccount(account.num, accountAddress.chain, accountAddress.hdindex, account.coin)
-      addr = key.getAddress()
+      const key = this.deriveMyHdAccount(account.num, accountAddress.chain, accountAddress.hdindex, account.coin)
+      //addr = key.getAddress()
+      addr = this.pubkeyToAddress(account.coin, key)
       break
     default:
-      var info = this.peekAccountInfo(account)
+      const info = this.peekAccountInfo(account)
       addr = this.calcP2SH(account.coin, info, accountAddress.chain, accountAddress.hdindex)
   }
   this.log("[isAddressesOfAccount] type: " + account.type + " accountAddress: " + accountAddress.address + " calcAddr: " + addr)
-  const aaBin = this.coinAddressToBytes(account.coin, accountAddress.address)
-  const addrBin = this.coinAddressToBytes(account.coin, addr)
-  return addrBin.equals(aaBin)
+  try {
+    var decodedAa = this.decodeCoinAddress(account.coin, accountAddress.address)
+    var decodedAddr = this.decodeCoinAddress(account.coin, addr)
+  } catch (err) {
+    return false
+  }
+  this.log("[isAddressesOfAccount] addr.version: " + decodedAddr.version + " decodedAa.version: " + decodedAa.version + " test: " + (decodedAddr.version == decodedAa.version))
+  return decodedAddr.hash.equals(decodedAa.hash) && decodedAddr.version == decodedAa.version
 }
 
 // updates account data if missing or incomplete
@@ -1672,19 +1682,19 @@ CM.prototype.analyzeTx = function (state, options) {
     if (recipients[j].pubId)
       recipients[j].validated = true
     else
-      recipients[j].binaddr = this.coinAddressToBytes(coin, recipients[j].address)
+      recipients[j].decodedAddr = this.decodeCoinAddress(coin, recipients[j].address)
   }
 
   // Mark our recipients to verify that none is left out
   for (i = 0; i < tx.outs.length; i++) {
     const output = tx.outs[i]
-    const toAddr = this.decodeAddressFromScript(coin, output.script)
-    const toAddrBytes = this.coinAddressToBytes(coin, toAddr)
+    const toAddr = this.buildAddressFromScript(coin, output.script)
+    const decodedTo = this.decodeCoinAddress(coin, toAddr)
     var isChange = false
     for (j = 0; j < changes.length; j++) {
-      const changeBytes = this.coinAddressToBytes(coin, changes[j].aa.address)
+      const decodedChange = this.decodeCoinAddress(coin, changes[j].aa.address)
       //if (toAddr === changes[j].aa.address) {
-      if (toAddrBytes.equals(changeBytes)) {
+      if (decodedTo.hash.equals(decodedChange.hash) && decodedTo.version === decodedChange.version) {
         amountToChange += output.value
         isChange = true
         break
@@ -1699,7 +1709,7 @@ CM.prototype.analyzeTx = function (state, options) {
         if (recipient.pubId || recipient.validated)
           continue
         //if (toAddr === recipient.address) {
-        if (toAddrBytes.equals(recipient.binaddr)) {
+        if (decodedTo.hash.equals(recipient.decodedAddr.hash) && decodedTo.version === recipient.decodedAddr.version) {
           if (recipient.isRemainder || output.value === recipient.amount) {
             amountToRecipients += output.value
             isRecipient = true
@@ -1824,7 +1834,7 @@ CM.prototype.verifyPtx = function (state, options) {
 
 CM.prototype.payConfirm = function (state, tfa) {
   var self = this
-  return this.ptxVerifyFieldsSignature(state.account, state.ptx).then(function () {
+  return this.ptxVerifyFieldsSignature(state.account, state.ptx).then(() => {
     return self.signaturesPrepare({
       coin: state.account.coin,
       accountNum: state.account.num,
@@ -1850,7 +1860,7 @@ CM.prototype.payRecipients = function (account, recipients, options) {
   var self = this
   options = options || {}
   options.autoSignIfValidated = true
-  return this.payPrepare(account, recipients, options).then(function (state) {
+  return this.payPrepare(account, recipients, options).then(state => {
     if (state.summary.validated) {
       return self.payConfirm(state, options ? options.tfa : undefined).then(function (hash) {
         state.hash = hash
@@ -2190,6 +2200,10 @@ CM.prototype.peekAccountInfos = function () {
   return this.walletData.infos
 }
 
+CM.prototype.peekAccountBalance = function (account) {
+  return this.walletData.balances[account.pubId]
+}
+
 CM.prototype.peekAccountInfo = function (account) {
   return this.walletData.infos[account.pubId]
 }
@@ -2340,9 +2354,9 @@ CM.prototype.recoveryPrepareMultiSigTx = function (accountInfo, tx, unspents, se
   const accountsData = []
   seeds.forEach(seed => {
     var walletHd = self.hdNodeFromHexSeed(seed)
-    var cosigner = cosigners.find(function (cosigner) {
+    var cosigner = cosigners.find(cosigner => {
       var accountHd = self.deriveHdAccount(walletHd, cosigner.accountNum, undefined, undefined, coin)
-      return accountHd.neutered().toBase58() === cosigner.xpub
+      return self.hdNodeToBase58Xpub(accountHd, coin) === cosigner.xpub
     })
     if (!cosigner)
       throw new MelisError('CmBadParamException', "Unable to find cosigner for seed: " + seed)
