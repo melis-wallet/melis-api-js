@@ -1321,8 +1321,11 @@ CM.prototype.getUnusedAddress = function (account, address, labels, meta) {
     address: address,
     labels: labels,
     meta: meta
-  }).then(function (res) {
-    return res.address
+  }).then(res => {
+    const aa = res.address
+    if (!self.isAddressOfAccount(account, aa))
+      return failPromiseWithEx(buildInvalidAddressEx(aa.address, "Received address not matching account definition! addr:" + aa.address + " pubId: " + account.pubId))
+    return aa
   })
 }
 
