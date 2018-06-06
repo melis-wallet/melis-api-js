@@ -1321,8 +1321,11 @@ CM.prototype.getUnusedAddress = function (account, address, labels, meta) {
     address: address,
     labels: labels,
     meta: meta
-  }).then(function (res) {
-    return res.address
+  }).then(res => {
+    const aa = res.address
+    if (!self.isAddressOfAccount(account, aa))
+      return failPromiseWithEx(buildInvalidAddressEx(aa.address, "Received address not matching account definition! addr:" + aa.address + " pubId: " + account.pubId))
+    return aa
   })
 }
 
@@ -1486,7 +1489,7 @@ CM.prototype.ptxVerifyFieldsSignature = function (account, ptx) {
   return this.ensureAccountInfo(account).then(function (account) {
     if (!self.ptxHasFieldsSignature(ptx))
       throwInvalidSignatureEx("PTX owner signature missing")
-    const xpub = account.xpub
+    let xpub = account.xpub
     if (account.numCosigners > 0) {
       var cosignerData = self.peekAccountInfo(account).cosigners.find(function (cosigner) {
         return cosigner.pubId === ptx.accountPubId

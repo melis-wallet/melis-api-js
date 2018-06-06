@@ -265,7 +265,7 @@ C.MSG_PREFIX_INSTANT_VERIFY = "Verify Melis instantTx: "
 C.MELIS_USER_AGENT = "/melis-api/"
 
 C.VALID_BASE58_CHARS = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-C.VALID_PUB_ID_REGEX = new RegExp("^((CM)|(M[01ZzYy]))[" + C.VALID_BASE58_CHARS + "]{26,28}$")
+C.VALID_PUB_ID_REGEX = new RegExp("^((CM)|(M[01ZzYyXxWw]))[" + C.VALID_BASE58_CHARS + "]{26,28}$")
 C.VALID_ALIAS_REGEX = new RegExp(/^[a-z0-9][a-z0-9-\\.]{2,61}$/)
 C.LEGACY_BITCOIN_REGEX = new RegExp(/^[132mn][a-km-zA-HJ-NP-Z0-9]{25,34}$/)
 C.BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
