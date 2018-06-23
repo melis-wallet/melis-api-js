@@ -314,15 +314,33 @@ function wifToEcPair(wif) {
   return Bitcoin.ECPair.fromWIF(wif, this.network)
 }
 
-function signMessageWithKP(keyPair, message, useSingleHash) {
-  var pk = keyPair.d.toBuffer(32)
-  return BitcoinMessage.sign(message, pk, true, this.network.messagePrefix, useSingleHash).toString('base64')
+function signMessageWithKP_internal(keyPair, message, useSingleHash, self) {
+  const pk = keyPair.d.toBuffer(32)
+  return BitcoinMessage.sign(message, pk, true, self.network.messagePrefix, useSingleHash).toString('base64')
 }
 
-function signMessageWithKPGrs(keyPair, message) {
-  //return signMessageWithKP(keyPair, message, true)
-  var pk = keyPair.d.toBuffer(32)
-  return BitcoinMessage.sign(message, pk, true, this.network.messagePrefix, true).toString('base64')
+function signMessageWithKP(keyPair, message, self) {
+  if (!self)
+    self = this
+  return signMessageWithKP_internal(keyPair, message, false, self)
+}
+
+function signMessageWithKPGrs(keyPair, message, self) {
+  if (!self)
+    self = this
+  return signMessageWithKP_internal(keyPair, message, true, self)
+}
+
+function prepareAddressSignature(keyPair, prefix, signingFunction, self) {
+  if (!self)
+    self = this
+  const address = pubkeyToAddress(keyPair)
+  const message = prefix + address
+  return {
+    address: address,
+    message: message,
+    base64Sig: signingFunction(keyPair, message, self)
+  }
 }
 
 function verifyMessageSignature(address, signature, message) {
@@ -363,16 +381,6 @@ function extractPubKeyFromOutputScript(script) {
     return Bitcoin.ECPair.fromPublicKeyBuffer(decoded[0], this.network)
   }
   return null
-}
-
-function prepareAddressSignature(keyPair, prefix, signingFunction) {
-  var address = pubkeyToAddress(keyPair)
-  var message = prefix + address
-  return {
-    address: address,
-    message: message,
-    base64Sig: signingFunction(keyPair, message)
-  }
 }
 
 function derivePubKeys_internal(self, xpubs, chain, hdIndex) {
@@ -574,12 +582,16 @@ function hdNodeToBase58XpubGrs(hd) {
 //
 
 const COMMON_METHODS = {
-  wifToEcPair, signMessageWithKP, verifyMessageSignature,
-  prepareAddressSignature: function (keyPair, prefix) { return prepareAddressSignature(keyPair, prefix, signMessageWithKP) },
+  wifToEcPair,
+  verifyMessageSignature,
   buildAddressFromScript,//: function (outScript) { return buildAddressFromScript(this, outScript) },
   extractPubKeyFromOutputScript, pubkeyToAddress,
   hdNodeFromHexSeed, hdNodeFromBase58, hdNodeToBase58Xpub,
-  derivePubKeys, calcP2SH, fixKeyNetworkParameters
+  derivePubKeys, calcP2SH, fixKeyNetworkParameters,
+  signMessageWithKP,
+  prepareAddressSignature: function (keyPair, prefix) {
+    return prepareAddressSignature(keyPair, prefix, signMessageWithKP, this)
+  },
 }
 
 const BCH_CONSTS = {
@@ -620,9 +632,7 @@ const RLTC = Object.assign({}, TLTC)
 const GRS = Object.assign({}, BTC,
   {
     network: grsProdnet,
-    signMessageWithKP: signMessageWithKPGrs,
     verifyMessageSignature: verifyMessageSignatureGrs,
-    prepareAddressSignature: function (keyPair, prefix) { return prepareAddressSignature(keyPair, prefix, signMessageWithKPGrs) },
     isValidAddress: isValidGrsAddress,
     decodeCoinAddress: decodeGrsLegacyAddress,
     toOutputScript: toOutputScriptGrs,
@@ -631,6 +641,10 @@ const GRS = Object.assign({}, BTC,
     hdNodeToBase58Xpub: hdNodeToBase58XpubGrs,
     pubkeyToAddress: pubkeyToAddressGrs,
     hashForSignature: hashForSignatureGrs,
+    signMessageWithKP: signMessageWithKPGrs,
+    prepareAddressSignature: function (keyPair, prefix) {
+      return prepareAddressSignature(keyPair, prefix, signMessageWithKPGrs, this)
+    },
   })
 const TGRS = Object.assign({}, GRS, { network: grsTestnet })
 const RGRS = Object.assign({}, TGRS)
