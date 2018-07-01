@@ -1200,7 +1200,7 @@ CM.prototype.walletMetaDelete = function (name) {
 CM.prototype.accountCreate = function (params) {
   if (!params || !params.type)
     throwBadParamEx('params', "Bad parameters")
-  var numPromise
+  let numPromise
   if (params.accountNum === undefined)
     numPromise = this.getFreeAccountNum()
   else
@@ -1209,7 +1209,7 @@ CM.prototype.accountCreate = function (params) {
   return numPromise.then(accountNum => {
     this.log("[CM] accountCreate coin: " + params.coin + " accountNum: " + params.accountNum)
     params.accountNum = accountNum
-    var accountHd = self.deriveMyHdAccount(accountNum, undefined, undefined, params.coin)
+    const accountHd = self.deriveMyHdAccount(accountNum, undefined, undefined, params.coin)
     params.xpub = self.hdNodeToBase58Xpub(accountHd, params.coin)
     return self.rpc(C.ACCOUNT_REGISTER, params)
   }).then(res => {
@@ -1845,8 +1845,8 @@ CM.prototype.payConfirm = function (state, tfa) {
       rawTx: state.ptx.rawTx,
       inputs: state.ptx.inputs
     })
-  }).then(function (signatures) {
-    return self.signaturesSubmit(state, signatures.map(function (o) {
+  }).then(signatures => {
+    return self.signaturesSubmit(state, signatures.map(o => {
       return o.sig.toDER().toString('hex')
     }), tfa)
   })
@@ -2299,13 +2299,14 @@ CM.prototype.recoveryPrepareMultiSigInputSig = function (index, accountInfo, uns
 }
 
 CM.prototype.recoveryPrepareSimpleTx = function (params) {
-  this.log("[recoveryPrepareSimpleTx params: ", params)
   const self = this
   const seed = params.seed
   const accountInfo = params.accountInfo
   const unspents = params.unspents
   const fees = params.fees
   const destinationAddress = params.destinationAddress
+  this.log("[recoveryPrepareSimpleTx] accountinfo: ", accountInfo)
+  this.log("[recoveryPrepareSimpleTx] unspents: ", unspents)
 
   const coin = accountInfo.coin
   const bscript = Bitcoin.script
@@ -2319,19 +2320,18 @@ CM.prototype.recoveryPrepareSimpleTx = function (params) {
   if (inputAmount === 0)
     throw new MelisError("Unexpected: input amount is zero")
   const outputSig = this.toOutputScript(coin, destinationAddress)
-  this.log("[rebuildSingleTx] inputAmount:" + inputAmount + " fees: " + fees + " outputSig: " + outputSig.toString('hex'))
+  this.log("[rebuildSingleTx] inputAmount:" + inputAmount + " fees: " + fees + " outputSig: " + outputSig.toString('hex') + " destAddress: " + destinationAddress)
   tx.addOutput(outputSig, inputAmount - fees)
 
   return self.signaturesPrepare({
     coin,
-    // hd: self.hdNodeFromHexSeed(coin, seed),
     hd: self.hdNodeFromHexSeed(seed),
     accountNum: accountInfo.accountNum,
     rawTx: tx.toHex(),
     inputs: unspents
   }).then(signatures => {
     for (let i = 0; i < unspents.length; i++) {
-      let sigData = signatures[i]
+      const sigData = signatures[i]
       const scriptSignature = self.toScriptSignature(coin, sigData.sig, Bitcoin.Transaction.SIGHASH_ALL)
       const inputScript = bscript.compile([scriptSignature, sigData.key.getPublicKeyBuffer()])
       tx.setInputScript(i, inputScript)
@@ -2356,21 +2356,23 @@ CM.prototype.recoveryPrepareMultiSigTx = function (accountInfo, tx, unspents, se
   // Discover which account is owned by which seed
   const accountsData = []
   seeds.forEach(seed => {
-    var walletHd = self.hdNodeFromHexSeed(seed)
-    var cosigner = cosigners.find(cosigner => {
-      var accountHd = self.deriveHdAccount(walletHd, cosigner.accountNum, undefined, undefined, coin)
+    const walletHd = self.hdNodeFromHexSeed(seed)
+    const cosigner = cosigners.find(cosigner => {
+      const accountHd = self.deriveHdAccount(walletHd, cosigner.accountNum, undefined, undefined, coin)
       return self.hdNodeToBase58Xpub(accountHd, coin) === cosigner.xpub
     })
     if (!cosigner)
       throw new MelisError('CmBadParamException', "Unable to find cosigner for seed: " + seed)
-    accountsData.push({ seed: seed, accountNum: cosigner.accountNum })
+    accountsData.push({walletHd, accountNum: cosigner.accountNum })
+    //accountsData.push({walletHd, seed: seed, accountNum: cosigner.accountNum })
   })
 
   const f = function (i) {
     const data = accountsData[i]
     return self.signaturesPrepare({
       coin,
-      hd: self.hdNodeFromHexSeed(data.seed),
+      //hd: self.hdNodeFromHexSeed(data.seed),
+      hd: data.walletHd,
       accountNum: data.accountNum,
       rawTx: hexTx,
       inputs: unspents
