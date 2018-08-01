@@ -66,6 +66,11 @@ function updateServerConfig(target, config) {
   target.platform = config.platform
 }
 
+function possiblyIncompleteAccountInfo(info) {
+  return !info || !info.account || info.account.status == C.STATUS_WAITING_COSIGNERS
+    || (info.cosigners && info.cosigners.length > 1 && !info.scriptParams)
+}
+
 function emitEvent(target, event, params) {
   target.lastReceivedMsgDate = new Date()
   if (event === C.EVENT_DISCONNECT_REQ) {
@@ -122,10 +127,6 @@ function failPromiseWithBadParam(paramName, msg) {
 function throwBadParamEx(paramName, msg) {
   throw buildBadParamEx(paramName, msg)
 }
-
-// function throwUnexpectedEx(msg) {
-//   throw new MelisError('UnexpectedClientEx', msg)
-// }
 
 function throwInvalidSignatureEx(msg) {
   throw new MelisError('CmInvalidSignatureException', msg)
@@ -1252,8 +1253,9 @@ CM.prototype.accountRefresh = function (account) {
   var self = this
   return this.rpc(C.ACCOUNT_REFRESH, {
     pubId: account.pubId
-  }).then(function (res) {
-    updateAccount(self, res.account, res.balance, res.accountInfo)
+  }).then(res => {
+    if (res.account && res.balance && res.accountInfo)
+      updateAccount(self, res.account, res.balance, res.accountInfo)
     return res
   })
 }
@@ -1311,16 +1313,20 @@ CM.prototype.getRecoveryInfo = function (account, fromDate) {
 }
 
 CM.prototype.getUnusedAddress = function (account, address, labels, meta) {
+  const self = this
   if (meta && Object.keys(meta).length === 0)
     meta = null
   if (labels && labels.length === 0)
     labels = null
-  var self = this
-  return this.rpc(C.ACCOUNT_GET_UNUSED_ADDRESS, {
-    pubId: account.pubId,
-    address: address,
-    labels: labels,
-    meta: meta
+  const promise = possiblyIncompleteAccountInfo(self.peekAccountInfo(account)) ?
+    self.accountRefresh(account).then(res => res.account) : Q(account)
+  return promise.then(account => {
+    return this.rpc(C.ACCOUNT_GET_UNUSED_ADDRESS, {
+      pubId: account.pubId,
+      address: address,
+      labels: labels,
+      meta: meta
+    })
   }).then(res => {
     const aa = res.address
     if (!self.isAddressOfAccount(account, aa))
@@ -1630,8 +1636,8 @@ CM.prototype.isAddressOfAccount = function (account, accountAddress) {
 CM.prototype.ensureAccountInfo = function (account) {
   var self = this
   var info = self.peekAccountInfo(account)
-  if (!info || (info.cosigners && info.cosigners.length > 1 && !info.scriptParams)) {
-    return self.accountRefresh(account).then(function (res) {
+  if (possiblyIncompleteAccountInfo(info)) {
+    return self.accountRefresh(account).then(res => {
       info = res.accountInfo
       if (info.cosigners && info.cosigners.length > 1 && !info.scriptParams)
         throwUnexpectedEx("Account not complete yet: have cosigners joined?")
@@ -2363,7 +2369,7 @@ CM.prototype.recoveryPrepareMultiSigTx = function (accountInfo, tx, unspents, se
     })
     if (!cosigner)
       throw new MelisError('CmBadParamException', "Unable to find cosigner for seed: " + seed)
-    accountsData.push({walletHd, accountNum: cosigner.accountNum })
+    accountsData.push({ walletHd, accountNum: cosigner.accountNum })
     //accountsData.push({walletHd, seed: seed, accountNum: cosigner.accountNum })
   })
 
