@@ -28,11 +28,11 @@
     "randombytes": "^2.0.6",
     "sjcl-all": "^1.0.1",
     "sockjs-client": "1.1.x",
-    "webstomp-client": "^1.2.0",
-    "ws": "^5.1.1"
+    "webstomp-client": "^1.2.4",
+    "ws": "^6.0.0"
   },
   "optionalDependencies": {
-    "bufferutil": "^3.0.5",
-    "utf-8-validate": "^4.0.2"
+    "bufferutil": "^4.0.0",
+    "utf-8-validate": "^5.0.1"
   }
 }

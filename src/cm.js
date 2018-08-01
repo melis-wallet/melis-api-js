@@ -66,6 +66,11 @@ function updateServerConfig(target, config) {
   target.platform = config.platform
 }
 
+function possiblyIncompleteAccountInfo(info) {
+  return !info || !info.account || info.account.status == C.STATUS_WAITING_COSIGNERS
+    || (info.cosigners && info.cosigners.length > 1 && !info.scriptParams)
+}
+
 function emitEvent(target, event, params) {
   target.lastReceivedMsgDate = new Date()
   if (event === C.EVENT_DISCONNECT_REQ) {
@@ -122,10 +127,6 @@ function failPromiseWithBadParam(paramName, msg) {
 function throwBadParamEx(paramName, msg) {
   throw buildBadParamEx(paramName, msg)
 }
-
-// function throwUnexpectedEx(msg) {
-//   throw new MelisError('UnexpectedClientEx', msg)
-// }
 
 function throwInvalidSignatureEx(msg) {
   throw new MelisError('CmInvalidSignatureException', msg)
@@ -1200,7 +1201,7 @@ CM.prototype.walletMetaDelete = function (name) {
 CM.prototype.accountCreate = function (params) {
   if (!params || !params.type)
     throwBadParamEx('params', "Bad parameters")
-  var numPromise
+  let numPromise
   if (params.accountNum === undefined)
     numPromise = this.getFreeAccountNum()
   else
@@ -1209,7 +1210,7 @@ CM.prototype.accountCreate = function (params) {
   return numPromise.then(accountNum => {
     this.log("[CM] accountCreate coin: " + params.coin + " accountNum: " + params.accountNum)
     params.accountNum = accountNum
-    var accountHd = self.deriveMyHdAccount(accountNum, undefined, undefined, params.coin)
+    const accountHd = self.deriveMyHdAccount(accountNum, undefined, undefined, params.coin)
     params.xpub = self.hdNodeToBase58Xpub(accountHd, params.coin)
     return self.rpc(C.ACCOUNT_REGISTER, params)
   }).then(res => {
@@ -1252,8 +1253,9 @@ CM.prototype.accountRefresh = function (account) {
   var self = this
   return this.rpc(C.ACCOUNT_REFRESH, {
     pubId: account.pubId
-  }).then(function (res) {
-    updateAccount(self, res.account, res.balance, res.accountInfo)
+  }).then(res => {
+    if (res.account && res.balance && res.accountInfo)
+      updateAccount(self, res.account, res.balance, res.accountInfo)
     return res
   })
 }
@@ -1311,16 +1313,20 @@ CM.prototype.getRecoveryInfo = function (account, fromDate) {
 }
 
 CM.prototype.getUnusedAddress = function (account, address, labels, meta) {
+  const self = this
   if (meta && Object.keys(meta).length === 0)
     meta = null
   if (labels && labels.length === 0)
     labels = null
-  var self = this
-  return this.rpc(C.ACCOUNT_GET_UNUSED_ADDRESS, {
-    pubId: account.pubId,
-    address: address,
-    labels: labels,
-    meta: meta
+  const promise = possiblyIncompleteAccountInfo(self.peekAccountInfo(account)) ?
+    self.accountRefresh(account).then(res => res.account) : Q(account)
+  return promise.then(account => {
+    return this.rpc(C.ACCOUNT_GET_UNUSED_ADDRESS, {
+      pubId: account.pubId,
+      address: address,
+      labels: labels,
+      meta: meta
+    })
   }).then(res => {
     const aa = res.address
     if (!self.isAddressOfAccount(account, aa))
@@ -1630,8 +1636,8 @@ CM.prototype.isAddressOfAccount = function (account, accountAddress) {
 CM.prototype.ensureAccountInfo = function (account) {
   var self = this
   var info = self.peekAccountInfo(account)
-  if (!info || (info.cosigners && info.cosigners.length > 1 && !info.scriptParams)) {
-    return self.accountRefresh(account).then(function (res) {
+  if (possiblyIncompleteAccountInfo(info)) {
+    return self.accountRefresh(account).then(res => {
       info = res.accountInfo
       if (info.cosigners && info.cosigners.length > 1 && !info.scriptParams)
         throwUnexpectedEx("Account not complete yet: have cosigners joined?")
@@ -1845,8 +1851,8 @@ CM.prototype.payConfirm = function (state, tfa) {
       rawTx: state.ptx.rawTx,
       inputs: state.ptx.inputs
     })
-  }).then(function (signatures) {
-    return self.signaturesSubmit(state, signatures.map(function (o) {
+  }).then(signatures => {
+    return self.signaturesSubmit(state, signatures.map(o => {
       return o.sig.toDER().toString('hex')
     }), tfa)
   })
@@ -2299,13 +2305,14 @@ CM.prototype.recoveryPrepareMultiSigInputSig = function (index, accountInfo, uns
 }
 
 CM.prototype.recoveryPrepareSimpleTx = function (params) {
-  this.log("[recoveryPrepareSimpleTx params: ", params)
   const self = this
   const seed = params.seed
   const accountInfo = params.accountInfo
   const unspents = params.unspents
   const fees = params.fees
   const destinationAddress = params.destinationAddress
+  this.log("[recoveryPrepareSimpleTx] accountinfo: ", accountInfo)
+  this.log("[recoveryPrepareSimpleTx] unspents: ", unspents)
 
   const coin = accountInfo.coin
   const bscript = Bitcoin.script
@@ -2319,19 +2326,18 @@ CM.prototype.recoveryPrepareSimpleTx = function (params) {
   if (inputAmount === 0)
     throw new MelisError("Unexpected: input amount is zero")
   const outputSig = this.toOutputScript(coin, destinationAddress)
-  this.log("[rebuildSingleTx] inputAmount:" + inputAmount + " fees: " + fees + " outputSig: " + outputSig.toString('hex'))
+  this.log("[rebuildSingleTx] inputAmount:" + inputAmount + " fees: " + fees + " outputSig: " + outputSig.toString('hex') + " destAddress: " + destinationAddress)
   tx.addOutput(outputSig, inputAmount - fees)
 
   return self.signaturesPrepare({
     coin,
-    // hd: self.hdNodeFromHexSeed(coin, seed),
     hd: self.hdNodeFromHexSeed(seed),
     accountNum: accountInfo.accountNum,
     rawTx: tx.toHex(),
     inputs: unspents
   }).then(signatures => {
     for (let i = 0; i < unspents.length; i++) {
-      let sigData = signatures[i]
+      const sigData = signatures[i]
       const scriptSignature = self.toScriptSignature(coin, sigData.sig, Bitcoin.Transaction.SIGHASH_ALL)
       const inputScript = bscript.compile([scriptSignature, sigData.key.getPublicKeyBuffer()])
       tx.setInputScript(i, inputScript)
@@ -2356,21 +2362,23 @@ CM.prototype.recoveryPrepareMultiSigTx = function (accountInfo, tx, unspents, se
   // Discover which account is owned by which seed
   const accountsData = []
   seeds.forEach(seed => {
-    var walletHd = self.hdNodeFromHexSeed(seed)
-    var cosigner = cosigners.find(cosigner => {
-      var accountHd = self.deriveHdAccount(walletHd, cosigner.accountNum, undefined, undefined, coin)
+    const walletHd = self.hdNodeFromHexSeed(seed)
+    const cosigner = cosigners.find(cosigner => {
+      const accountHd = self.deriveHdAccount(walletHd, cosigner.accountNum, undefined, undefined, coin)
       return self.hdNodeToBase58Xpub(accountHd, coin) === cosigner.xpub
     })
     if (!cosigner)
       throw new MelisError('CmBadParamException', "Unable to find cosigner for seed: " + seed)
-    accountsData.push({ seed: seed, accountNum: cosigner.accountNum })
+    accountsData.push({ walletHd, accountNum: cosigner.accountNum })
+    //accountsData.push({walletHd, seed: seed, accountNum: cosigner.accountNum })
   })
 
   const f = function (i) {
     const data = accountsData[i]
     return self.signaturesPrepare({
       coin,
-      hd: self.hdNodeFromHexSeed(data.seed),
+      //hd: self.hdNodeFromHexSeed(data.seed),
+      hd: data.walletHd,
       accountNum: data.accountNum,
       rawTx: hexTx,
       inputs: unspents
