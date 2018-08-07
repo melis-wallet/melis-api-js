@@ -9,7 +9,6 @@ const curve = ecurve.getCurveByName('secp256k1')
 const BitcoinMessage = require('./sign-message')
 const cashaddr = require('cashaddrjs')
 const base58grs = require('./base58grs')
-const base58check = require('bs58check')
 const C = require("./cm-constants")
 // import { MelisError, throwUnexpectedEx } from "./melis-error"
 const MelisErrorModule = require("./melis-error")

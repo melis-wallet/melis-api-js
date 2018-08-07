@@ -711,9 +711,9 @@ CM.prototype.connect = function (config) {
 }
 
 CM.prototype.connect_internal = function (stompEndpoint, config) {
-  var self = this
-  var deferred = Q.defer()
-  var options = { debug: false, heartbeat: false, protocols: Stomp.VERSIONS.supportedProtocols() }
+  const self = this
+  const deferred = Q.defer()
+  const options = { debug: true, heartbeat: false, protocols: Stomp.VERSIONS.supportedProtocols() }
   if ((/^wss?:\/\//).test(stompEndpoint)) {
     if (isNode) {
       self.log("[STOMP] Opening websocket (node):", stompEndpoint)
@@ -724,12 +724,12 @@ CM.prototype.connect_internal = function (stompEndpoint, config) {
       })
       this.stompClient = Stomp.over(ws, options)
     } else {
-      self.log("[STOMP] Opening websocket (browser):", stompEndpoint)
-      this.stompClient = Stomp.client(stompEndpoint)
+      self.log("[STOMP] Opening websocket (browser) to " + stompEndpoint + " options:", options)
+      this.stompClient = Stomp.client(stompEndpoint, options)
     }
   } else {
     self.log("[STOMP] Opening sockjs:", stompEndpoint)
-    this.stompClient = Stomp.over(new SockJS(stompEndpoint))
+    this.stompClient = Stomp.over(new SockJS(stompEndpoint), options)
   }
 
   this.stompClient.debug = function (str) {
@@ -803,7 +803,7 @@ CM.prototype.connect_internal = function (stompEndpoint, config) {
 }
 
 CM.prototype.disconnect = function () {
-  var self = this
+  const self = this
   disableKeepAliveFunc(self)
   disableAutoReconnect(self)
   if (!this.connected)
