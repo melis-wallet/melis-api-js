@@ -12,7 +12,7 @@ const sjcl = require('sjcl-all')
 const C = require("./cm-constants")
 const FeeApi = require("./fee-api")
 const BC_APIS = require("./blockchain-apis")
-const Networks = require("./networks")
+const CoinDrivers = require("./drivers")
 const MelisErrorModule = require("./melis-error")
 const MelisError = MelisErrorModule.MelisError
 const throwUnexpectedEx = MelisErrorModule.throwUnexpectedEx
@@ -313,7 +313,7 @@ CM.prototype.isProdNet = function () {
 //
 
 function getDriver(coin) {
-  const driver = Networks[coin]
+  const driver = CoinDrivers[coin]
   if (!driver)
     throw new MelisError("Unknown coin: " + coin)
   return driver
@@ -713,7 +713,7 @@ CM.prototype.connect = function (config) {
 CM.prototype.connect_internal = function (stompEndpoint, config) {
   const self = this
   const deferred = Q.defer()
-  const options = { debug: true, heartbeat: false, protocols: Stomp.VERSIONS.supportedProtocols() }
+  const options = { debug: false, heartbeat: false }//, protocols: Stomp.VERSIONS.supportedProtocols() }
   if ((/^wss?:\/\//).test(stompEndpoint)) {
     if (isNode) {
       self.log("[STOMP] Opening websocket (node):", stompEndpoint)
@@ -1271,7 +1271,7 @@ CM.prototype.accountUpdate = function (account, options) {
     meta: options.meta,
     tfa: options.tfa,
     pubMeta: options.pubMeta
-  }).then(function (res) {
+  }).then(res => {
     updateAccount(self, res.account, res.balance, res.accountInfo)
     return res
   })
@@ -1279,7 +1279,7 @@ CM.prototype.accountUpdate = function (account, options) {
 
 CM.prototype.accountDelete = function (account) {
   var self = this
-  return this.rpc(C.ACCOUNT_DELETE, { pubId: account.pubId }).then(function (res) {
+  return this.rpc(C.ACCOUNT_DELETE, { pubId: account.pubId }).then(res => {
     delete self.walletData.accounts[account.pubId]
     delete self.walletData.balances[account.pubId]
     delete self.walletData.infos[account.pubId]
@@ -1294,8 +1294,6 @@ CM.prototype.joinCodeGetInfo = function (code) {
 CM.prototype.getLocktimeDays = function (account) {
   return this.rpc(C.ACCOUNT_GET_LOCKTIME_DAYS, {
     pubId: account.pubId
-  }).then(function (res) {
-    return res
   })
 }
 
@@ -1345,18 +1343,14 @@ CM.prototype.addressUpdate = function (account, address, labels, meta) {
     address: address,
     labels: labels,
     meta: meta
-  }).then(function (res) {
-    return res.address
-  })
+  }).then(res => res.address)
 }
 
 CM.prototype.addressRelease = function (account, address) {
   return this.rpc(C.ACCOUNT_ADDRESS_RELEASE, {
     pubId: account.pubId,
     address: address
-  }).then(function (res) {
-    return res.address
-  })
+  }).then(res => res.address)
 }
 
 CM.prototype.addressGet = function (account, address, optionsAndPaging) {
