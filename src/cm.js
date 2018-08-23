@@ -713,11 +713,11 @@ CM.prototype.connect = function (config) {
 CM.prototype.connect_internal = function (stompEndpoint, config) {
   const self = this
   const deferred = Q.defer()
-  const options = { debug: false, heartbeat: false }//, protocols: Stomp.VERSIONS.supportedProtocols() }
+  const options = { debug: false, heartbeat: false, protocols: ['v12.stomp'] }
   if ((/^wss?:\/\//).test(stompEndpoint)) {
     if (isNode) {
       self.log("[STOMP] Opening websocket (node):", stompEndpoint)
-      var ws = new WebSocketClient(stompEndpoint)
+      const ws = new WebSocketClient(stompEndpoint)
       ws.on('error', function (error) {
         self.log('[connect_internal] CONNECT ERROR:' + error.code)
         deferred.reject(error)
