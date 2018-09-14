@@ -2124,6 +2124,21 @@ CM.prototype.verifyInstantViaRest = function (account, address, hash, n) {
   })
 }
 
+CM.prototype.prepareUnspentForkClaim = function (params) {
+  return this.rpc(C.PREPARE_UNSPENT_FORK_CLAIM, {
+    pubId: params.account.pubId,
+    targetCoin: params.targetCoin,
+    targetAddress: params.targetAddress,
+    unspents: params.unspents
+  })
+}
+
+CM.prototype.submitForkClaim = function (id, signatures) {
+  return this.rpc(C.SUBMIT_FORK_CLAIM, {
+    id, signatures
+  })
+}
+
 //
 // Non-promise returning methods
 //
