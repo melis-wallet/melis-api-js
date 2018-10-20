@@ -713,11 +713,11 @@ CM.prototype.connect = function (config) {
 CM.prototype.connect_internal = function (stompEndpoint, config) {
   const self = this
   const deferred = Q.defer()
-  const options = { debug: false, heartbeat: false }//, protocols: Stomp.VERSIONS.supportedProtocols() }
+  const options = { debug: false, heartbeat: false, protocols: ['v12.stomp'] }
   if ((/^wss?:\/\//).test(stompEndpoint)) {
     if (isNode) {
       self.log("[STOMP] Opening websocket (node):", stompEndpoint)
-      var ws = new WebSocketClient(stompEndpoint)
+      const ws = new WebSocketClient(stompEndpoint)
       ws.on('error', function (error) {
         self.log('[connect_internal] CONNECT ERROR:' + error.code)
         deferred.reject(error)
@@ -2121,6 +2121,21 @@ CM.prototype.verifyInstantViaRest = function (account, address, hash, n) {
     headers: { "user-agent": C.MELIS_USER_AGENT }
   }).then(function (res) {
     return res.json()
+  })
+}
+
+CM.prototype.prepareUnspentForkClaim = function (params) {
+  return this.rpc(C.PREPARE_UNSPENT_FORK_CLAIM, {
+    pubId: params.account.pubId,
+    targetCoin: params.targetCoin,
+    targetAddress: params.targetAddress,
+    unspents: params.unspents
+  })
+}
+
+CM.prototype.submitForkClaim = function (id, signatures) {
+  return this.rpc(C.SUBMIT_FORK_CLAIM, {
+    id, signatures
   })
 }
 
