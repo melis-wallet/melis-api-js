@@ -19,17 +19,17 @@
   "dependencies": {
     "bitcoinjs-lib": "^3.3.2",
     "bitcoinjs-message": "^2.0.0",
-    "cashaddrjs": "^0.2.8",
-    "detect-node": "^2.0.3",
+    "cashaddrjs": "^0.2.9",
+    "detect-node": "^2.0.4",
     "ecurve": "^1.0.6",
     "groestl-hash-js": "^1.0.0",
     "isomorphic-fetch": "^2.2.1",
     "q": "1.x",
     "randombytes": "^2.0.6",
     "sjcl-all": "^1.0.1",
-    "sockjs-client": "1.1.x",
-    "webstomp-client": "1.2.0",
-    "ws": "^6.0.0"
+    "sockjs-client": "^1.1.5",
+    "webstomp-client": "^1.2.5",
+    "ws": "^6.1.0"
   },
   "optionalDependencies": {
     "bufferutil": "^4.0.0",
