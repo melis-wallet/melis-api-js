@@ -3,6 +3,7 @@ const bscript = Bitcoin.script
 const bcrypto = Bitcoin.crypto
 const opcodes = Bitcoin.opcodes
 
+const BigInteger = require('bigi')
 const ecurve = require('ecurve')
 const curve = ecurve.getCurveByName('secp256k1')
 //const BitcoinMessage = require('bitcoinjs-message')
@@ -58,7 +59,32 @@ const grsProdnet = Object.assign({}, grsTestnet, {
   wif: 0x80
 })
 
-const NETWORKS = Object.assign({ litecoinTestnet, grsTestnet, grsProdnet }, Bitcoin.networks)
+const dogeProdnet = {
+  messagePrefix: '\x19Dogecoin Signed Message:\n',
+  pubKeyHash: 30, // 0x1E
+  scriptHash: 22, // 0x16
+  wif: 158,
+  bip32: {
+    public: 0x02facafd,
+    private: 0x02fac398
+  }
+}
+const dogeTestnet = {
+  messagePrefix: '\x19Dogecoin Signed Message:\n',
+  pubKeyHash: 113, // 0x71
+  scriptHash: 196,    // 0xc4
+  wif: 158,
+  bip32: {
+    public: 0x043587CF,
+    private: 0x04358394
+  }
+}
+const dogeRegtest = Object.assign({}, dogeTestnet, {
+  pubKeyHash: 111,
+  wif: 239
+})
+
+const NETWORKS = Object.assign({ litecoinTestnet, grsTestnet, grsProdnet, dogeTestnet, dogeProdnet, dogeRegtest }, Bitcoin.networks)
 const NETWORKS_ARRAY = []
 Object.keys(NETWORKS).forEach(net => NETWORKS_ARRAY.push(NETWORKS[net]))
 
@@ -548,9 +574,13 @@ function hdNodeToBase58Xpub(hd) {
   return hd.neutered().toBase58()
 }
 
-function hdNodeToBase58XpubGrs(hd) {
+function hdNodeToExtendedBase58(hd) {
+  return hd.toBase58()
+}
+
+function hdNodeToBase58Grs(hd, doExportPrivate, self) {
   // Version
-  const version = this.network.bip32.public
+  const version = doExportPrivate ? self.network.bip32.private : self.network.bip32.public
   const buffer = Buffer.allocUnsafe(78)
 
   // 4 bytes: version bytes
@@ -569,9 +599,15 @@ function hdNodeToBase58XpubGrs(hd) {
   // 32 bytes: the chain code
   hd.chainCode.copy(buffer, 13)
 
-  // 33 bytes: the public key
-  // X9.62 encoding for public keys
-  hd.keyPair.getPublicKeyBuffer().copy(buffer, 45)
+  if (doExportPrivate) {
+    // 0x00 + k for private keys
+    buffer.writeUInt8(0, 45)
+    hd.keyPair.d.toBuffer(32).copy(buffer, 46)
+  } else {
+    // 33 bytes: the public key
+    // X9.62 encoding for public keys
+    hd.keyPair.getPublicKeyBuffer().copy(buffer, 45)
+  }
 
   return base58grs.encode(buffer)
 }
@@ -586,6 +622,7 @@ const COMMON_METHODS = {
   buildAddressFromScript,//: function (outScript) { return buildAddressFromScript(this, outScript) },
   extractPubKeyFromOutputScript, pubkeyToAddress,
   hdNodeFromHexSeed, hdNodeFromBase58, hdNodeToBase58Xpub,
+  hdNodeToExtendedBase58,
   derivePubKeys, calcP2SH, fixKeyNetworkParameters,
   signMessageWithKP,
   prepareAddressSignature: function (keyPair, prefix) {
@@ -616,6 +653,11 @@ const BCH_COMMON = {
   toCashAddress: function (address) { return convertLegacyAddressToBech32Cash(address, this) }
 }
 
+const BSV_COMMON = {
+  toScriptSignature: toScriptSignatureCash,
+  hashForSignature: hashForSignatureCash,
+}
+
 const BTC = Object.assign({ network: NETWORKS.bitcoin }, BTC_COMMON, COMMON_METHODS)
 const TBTC = Object.assign({}, BTC, { network: NETWORKS.testnet })
 const RBTC = Object.assign({}, TBTC)
@@ -628,6 +670,14 @@ const LTC = Object.assign({ network: NETWORKS.litecoin }, BTC_COMMON, COMMON_MET
 const TLTC = Object.assign({}, LTC, { network: litecoinTestnet })
 const RLTC = Object.assign({}, TLTC)
 
+const BSV = Object.assign({}, BTC, BSV_COMMON)
+const TBSV = Object.assign({}, TBTC, BSV_COMMON)
+const RBSV = Object.assign({}, RBTC, BSV_COMMON)
+
+const DOGE = Object.assign({}, BTC, { network: NETWORKS.dogeProdnet })
+const TDOG = Object.assign({}, DOGE, { network: NETWORKS.dogeTestnet })
+const RDOG = Object.assign({}, TDOG, { network: NETWORKS.dogeRegtest })
+
 const GRS = Object.assign({}, BTC,
   {
     network: grsProdnet,
@@ -635,9 +685,14 @@ const GRS = Object.assign({}, BTC,
     isValidAddress: isValidGrsAddress,
     decodeCoinAddress: decodeGrsLegacyAddress,
     toOutputScript: toOutputScriptGrs,
-    buildAddressFromScript: buildAddressFromScriptGrs, //: function (outScript) { return buildAddressFromScriptGrs(this, outScript) },
+    buildAddressFromScript: buildAddressFromScriptGrs,
     hdNodeFromBase58: hdNodeFromBase58Grs,
-    hdNodeToBase58Xpub: hdNodeToBase58XpubGrs,
+    hdNodeToBase58Xpub: function(hd) {
+      return hdNodeToBase58Grs(hd, false, this)
+    },
+    hdNodeToExtendedBase58: function(hd) {
+      return hdNodeToBase58Grs(hd, true, this)
+    },
     pubkeyToAddress: pubkeyToAddressGrs,
     hashForSignature: hashForSignatureGrs,
     signMessageWithKP: signMessageWithKPGrs,
@@ -653,6 +708,8 @@ const drivers = {
   BCH, TBCH, RBCH,
   LTC, TLTC, RLTC,
   GRS, TGRS, RGRS,
+  BSV, TBSV, RBSV,
+  DOGE, TDOG, RDOG
 }
 
 module.exports = drivers

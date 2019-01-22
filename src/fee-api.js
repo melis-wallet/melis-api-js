@@ -17,7 +17,7 @@ const HARDCODED_BCH_FEES = {
   maximumAcceptable: 10,
   fastestFee: 4,
   mediumFee: 2,
-  slowFee: 2
+  slowFee: 1
 }
 
 const HARDCODED_LTC_FEES = {
@@ -27,6 +27,9 @@ const HARDCODED_LTC_FEES = {
   mediumFee: 150,
   slowFee: 100
 }
+
+const HARDCODED_BSV_FEES = HARDCODED_BCH_FEES
+const HARDCODED_DOGE_FEES = HARDCODED_BCH_FEES
 
 function getNetworkFees21() {
   return fetch("https://bitcoinfees.21.co/api/v1/fees/recommended").then(res => {
@@ -177,6 +180,35 @@ feeProviders[C.COIN_REGTEST_GRS] = {
   'hardcoded': () => Q(HARDCODED_BCH_FEES),
   'melis': () => getNetworkFeesMelis(C.COIN_REGTEST_GRS)
 }
+
+// Bitcoin SV
+feeProviders[C.COIN_PROD_BSV] = {
+  'hardcoded': () => Q(HARDCODED_BSV_FEES),
+  'melis': () => getNetworkFeesMelis(C.COIN_PROD_BSV)
+}
+feeProviders[C.COIN_TEST_BSV] = {
+  'hardcoded': () => Q(HARDCODED_BSV_FEES),
+  'melis': () => getNetworkFeesMelis(C.COIN_TEST_BSV)
+}
+feeProviders[C.COIN_REGTEST_BSV] = {
+  'hardcoded': () => Q(HARDCODED_BSV_FEES),
+  'melis': () => getNetworkFeesMelis(C.COIN_REGTEST_BSV)
+}
+
+// DOGE
+feeProviders[C.COIN_PROD_DOGE] = {
+  'hardcoded': () => Q(HARDCODED_DOGE_FEES),
+  'melis': () => getNetworkFeesMelis(C.COIN_PROD_DOGE)
+}
+feeProviders[C.COIN_TEST_DOGE] = {
+  'hardcoded': () => Q(HARDCODED_DOGE_FEES),
+  'melis': () => getNetworkFeesMelis(C.COIN_TEST_DOGE)
+}
+feeProviders[C.COIN_REGTEST_DOGE] = {
+  'hardcoded': () => Q(HARDCODED_DOGE_FEES),
+  'melis': () => getNetworkFeesMelis(C.COIN_REGTEST_DOGE)
+}
+
 
 // var nextFeeProvider
 // feeProviders = [
