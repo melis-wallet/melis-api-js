@@ -17,22 +17,25 @@ const MelisErrorModule = require("./melis-error")
 const MelisError = MelisErrorModule.MelisError
 const throwUnexpectedEx = MelisErrorModule.throwUnexpectedEx
 
-function walletOpen(target, hd, serverWalletData) {
+function walletOpen(target, hd, serverWalletData, isSingleAccount) {
   if (!hd || !serverWalletData)
     throwUnexpectedEx("No data opening wallet")
-  target.hdWallet = hd
-  var accounts = {}
-  var balances = {}
-  var infos = {}
-  serverWalletData.accounts.forEach(function (a, i) {
+  const accounts = {},  balances = {}, infos = {}, keys = {}
+  serverWalletData.accounts.forEach((a, i) => {
     accounts[a.pubId] = a
     balances[a.pubId] = serverWalletData.balances[i]
     infos[a.pubId] = serverWalletData.accountInfos[i]
+    if (isSingleAccount)
+      keys[a.num] = hd
+    else
+      keys[a.num] = target.deriveAccountHdKey(hd, a.num, a.coin)
   })
+  if (isSingleAccount)
+    target.hdAccount = hd
+  else
+    target.hdWallet = hd
   target.walletData = {
-    accounts: accounts,
-    balances: balances,
-    infos: infos
+    accounts, balances, infos, keys
   }
   // Transforms arrays in objects
   serverWalletData.accounts = accounts
@@ -43,6 +46,7 @@ function walletOpen(target, hd, serverWalletData) {
 
 function walletClose(target) {
   target.hdWallet = null
+  target.hdAccount = null
   target.walletData = null
 }
 
@@ -50,11 +54,12 @@ function updateWalletInfo(target, info) {
   target.walletData.info = info
 }
 
-function updateAccount(target, account, balance, info) {
+function updateAccount(target, account, balance, info, hdWallet) {
   target.walletData.accounts[account.pubId] = account
   target.walletData.balances[account.pubId] = balance
-  if (info)
-    target.walletData.infos[account.pubId] = info
+  target.walletData.infos[account.pubId] = info
+  if (hdWallet)
+    target.walletData.keys[account.num] = target.deriveAccountHdKey(hdWallet, account.num, account.coin)
 }
 
 function updateServerConfig(target, config) {
@@ -146,6 +151,7 @@ function initializePrivateFields(target) {
   }
   target.waitingReplies = {}
   target.hdWallet = null
+  target.accountExtendedKey = null
   target.walletData = null
   target.lastBlocks = {}
   target.lastOpenParams = null
@@ -362,7 +368,7 @@ CM.prototype.verifyMessageSignature = function (coin, address, signature, messag
 CM.prototype.signMessageWithAA = function (account, aa, message) {
   if (account.type !== C.TYPE_PLAIN_HD)
     throw new MelisError('CmBadParamException', 'Only single signature accounts can sign messages')
-  const key = this.deriveMyHdAccount(account.num, aa.chain, aa.hdindex, account.coin)
+  const key = this.deriveAddressKey(account.num, aa.chain, aa.hdindex)
   return this.signMessageWithKP(account.coin, key.keyPair, message)
 }
 
@@ -406,6 +412,11 @@ CM.prototype.hdNodeToBase58Xpub = function (hd, coin) {
   if (!coin)
     coin = this.getDefaultPlatformCoin()
   return getDriver(coin).hdNodeToBase58Xpub(hd)
+}
+
+CM.prototype.exportAccountMasterKeyToBase58 = function (account) {
+  const hd = this.peekAccountMasterKey(account)
+  return getDriver(account.coin).hdNodeToExtendedBase58(hd)
 }
 
 CM.prototype.updateNetworkFees = function (coin) {
@@ -484,11 +495,11 @@ CM.prototype.getLoginPath = function () {
 CM.prototype.deriveKeyFromPath = function (hdnode, path) {
   if (!path || path.length === 0)
     return hdnode
-  var key = hdnode
-  for (var i = 0; i < path.length; i++) {
-    var index = path[i]
+  let key = hdnode
+  for (let i = 0; i < path.length; i++) {
+    const index = path[i]
     if (index & 0x80000000) {
-      var v = index & 0x7FFFFFFF
+      const v = index & 0x7FFFFFFF
       key = key.deriveHardened(v)
     } else {
       key = key.derive(index)
@@ -498,23 +509,35 @@ CM.prototype.deriveKeyFromPath = function (hdnode, path) {
 }
 
 // BIP44 standard derivation
-CM.prototype.deriveMyHdAccount = function (accountNum, chain, index, coin) {
-  return this.deriveHdAccount(this.hdWallet, accountNum, chain, index, coin)
-}
-CM.prototype.deriveHdAccount = function (hd, accountNum, chain, index, coin) {
+CM.prototype.deriveAccountHdKey = function (hd, accountNum, coin) {
   const subTree = this.isProdNet() ? 0 : 1
-  var key = hd.deriveHardened(44)
+  let key = hd.deriveHardened(44)
   key = key.deriveHardened(subTree)
   key = key.deriveHardened(accountNum)
   if (coin)
     getDriver(coin).fixKeyNetworkParameters(key)
-  if (chain === undefined || chain === null || index === undefined || index === null)
-    return key
-  return key.derive(chain).derive(index)
+  return key
 }
 
+CM.prototype.deriveChainIndex = function (accountKey, chain, index) {
+  return accountKey.derive(chain).derive(index)
+}
+
+CM.prototype.deriveAddressKey = function (accountNum, chain, index) {
+  const accountHd = this.walletData.keys[accountNum]
+  return accountHd.derive(chain).derive(index)
+}
+
+CM.prototype.peekAccountMasterKey = function (account) {
+  return this.walletData.keys[account.num]
+}
+
+// TODO: remove obsolete method
 CM.prototype.accountAddressToWIF = function (account, aa) {
-  const key = this.deriveMyHdAccount(account.num, aa.chain, aa.hdindex, account.coin)
+  return exportAddressKeyToWIF(account, aa)
+}
+CM.prototype.exportAddressKeyToWIF = function (account, aa) {
+  const key = this.deriveAddressKey(account.num, aa.chain, aa.hdindex)
   return key.keyPair.toWIF()
 }
 
@@ -773,7 +796,7 @@ CM.prototype.connect_internal = function (stompEndpoint, config) {
     })
 
     self.stompClient.subscribe(C.QUEUE_BLOCKS, function (message) {
-      var msg = JSON.parse(message.body)
+      const msg = JSON.parse(message.body)
       self.lastBlocks[msg.coin] = msg
       emitEvent(self, C.EVENT_BLOCK, msg)
     })
@@ -785,9 +808,14 @@ CM.prototype.connect_internal = function (stompEndpoint, config) {
         emitEvent(self, event.type, event.params)
       }
       if (self.lastOpenParams) {
-        self.walletOpen(self.lastOpenParams.seed, self.lastOpenParams).then(function (wallet) {
+        if (self.lastOpenParams.accountExtendedKey) {
+        self.accountOpen(self.lastOpenParams.accountExtendedKey, self.lastOpenParams).then(wallet => {
           emitEvent(self, C.EVENT_SESSION_RESTORED, wallet)
-        })
+        })} else if (self.lastOpenParams.seed) {
+          self.walletOpen(self.lastOpenParams.seed, self.lastOpenParams).then(wallet => {
+            emitEvent(self, C.EVENT_SESSION_RESTORED, wallet)
+          })
+        } 
       }
       if (self.cmConfiguration.maxKeepAliveSeconds && self.cmConfiguration.maxKeepAliveSeconds < self.maxKeepAliveSeconds)
         self.maxKeepAliveSeconds = self.cmConfiguration.maxKeepAliveSeconds
@@ -908,7 +936,7 @@ CM.prototype.accountGetPublicInfo = function (params) {
   })
 }
 
-CM.prototype.getWalletChallenge = function () {
+CM.prototype.getLoginChallenge = function () {
   return this.rpc(C.GET_CHALLENGE)
 }
 
@@ -1050,31 +1078,62 @@ CM.prototype.devicesDeleteAll = function (deviceId) {
 //
 
 CM.prototype.walletOpen = function (seed, params) {
-  var self = this
+  const self = this
   if (!params)
     params = {}
-  return this.getWalletChallenge().then(function (res) {
-    var challengeHex = res.challenge
+  return this.getLoginChallenge().then(res => {
     //self.log("[CM] walletOpen challenge: " + challengeHex + " seed: " + seed + " isProduction:"+self.isProdNet())
-    //var hd = self.hdNodeFromHexSeed(self.isProdNet() ? C.COIN_PROD_BTC : C.COIN_TEST_BTC, seed)
-    var hd = self.hdNodeFromHexSeed(seed)
+    const hd = self.hdNodeFromHexSeed(seed)
     // Keep the public key for ourselves
-    var loginKey = self.deriveKeyFromPath(hd, self.getLoginPath())
-    var buf = Buffer.from(challengeHex, 'hex')
-    var signature = loginKey.sign(buf)
+    const loginId = self.deriveKeyFromPath(hd, self.getLoginPath())
+    const chainCode = Buffer.alloc(32,"42", 'hex')
+    const loginHD = new Bitcoin.HDNode(loginId.keyPair, chainCode)
+    const loginPath = [simpleRandomInt(C.MAX_SUBPATH), simpleRandomInt(C.MAX_SUBPATH)]
+    const loginKey = self.deriveKeyFromPath(loginHD, loginPath)
+    const signature = loginKey.sign(Buffer.from(res.challenge, 'hex'))
     //self.log("child: " + child.getPublicKeyBuffer().toString('hex')() + " sig: " + signature)
     //self.log("pubKey: " + masterPubKey + " r: " + signature.r.toString() + " s: " + signature.s.toString())
     return self.rpc(C.WALLET_OPEN, {
-      id: loginKey.getPublicKeyBuffer().toString('hex'),
+      id: loginId.getPublicKeyBuffer().toString('hex'),
+      loginPath,
       signatureR: signature.r.toString(), signatureS: signature.s.toString(),
       sessionName: params.sessionName,
       deviceId: params.deviceId,
       usePinAsTfa: params.usePinAsTfa
-    }).then(function (res) {
-      var wallet = res.wallet
+    }).then(res => {
+      const wallet = res.wallet
       self.log("[CM] walletOpen pubKey:" + wallet.pubKey + self.isProdNet() + " #accounts: " + Object.keys(wallet.accounts).length + " isProdNet: ")
       walletOpen(self, hd, wallet)
       self.lastOpenParams = { seed: seed, sessionName: params.sessionName, deviceId: params.deviceId }
+      return wallet
+    })
+  })
+}
+
+CM.prototype.accountOpen = function (extendedKey, params) {
+  const self = this
+  if (!params)
+    params = {}
+  const accountHd = self.hdNodeFromBase58(extendedKey, params.coin)
+  return this.getLoginChallenge().then(res => {
+    const loginPath = [simpleRandomInt(C.MAX_SUBPATH), simpleRandomInt(C.MAX_SUBPATH)]
+    const loginKey = self.deriveKeyFromPath(accountHd, loginPath)
+    const challenge = Buffer.from(res.challenge, 'hex')
+    const signature = loginKey.sign(challenge)
+    //self.log("child: " + child.getPublicKeyBuffer().toString('hex')() + " sig: " + signature)
+    //self.log("pubKey: " + masterPubKey + " r: " + signature.r.toString() + " s: " + signature.s.toString())
+    return self.rpc(C.ACCOUNT_OPEN, {
+      xpub: self.hdNodeToBase58Xpub(accountHd),
+      loginPath,
+      signatureR: signature.r.toString(), signatureS: signature.s.toString(),
+      sessionName: params.sessionName,
+      deviceId: params.deviceId,
+      usePinAsTfa: params.usePinAsTfa
+    }).then(res => {
+      const wallet = res.wallet
+      self.log("[CM] accountOpen isProdNet: " + self.isProdNet+" wallet: ", wallet)
+      walletOpen(self, accountHd, wallet, true)
+      self.lastOpenParams = { accountExtendedKey: extendedKey, sessionName: params.sessionName, deviceId: params.deviceId }
       return wallet
     })
   })
@@ -1110,7 +1169,7 @@ CM.prototype.walletRegister = function (seed, params) {
 }
 
 CM.prototype.walletClose = function () {
-  var self = this
+  const self = this
   return self.rpc(C.WALLET_CLOSE).then(function (res) {
     walletClose(self)
     return res
@@ -1210,11 +1269,11 @@ CM.prototype.accountCreate = function (params) {
   return numPromise.then(accountNum => {
     this.log("[CM] accountCreate coin: " + params.coin + " accountNum: " + params.accountNum)
     params.accountNum = accountNum
-    const accountHd = self.deriveMyHdAccount(accountNum, undefined, undefined, params.coin)
+    const accountHd = self.deriveAccountHdKey(self.hdWallet, accountNum, params.coin)
     params.xpub = self.hdNodeToBase58Xpub(accountHd, params.coin)
     return self.rpc(C.ACCOUNT_REGISTER, params)
   }).then(res => {
-    updateAccount(self, res.account, res.balance, res.accountInfo)
+    updateAccount(self, res.account, res.balance, res.accountInfo, self.hdWallet)
     return res
   })
 }
@@ -1236,7 +1295,7 @@ CM.prototype.accountJoin = function (params) {
 
   return numPromise.then(coinPromise).then(() => {
     this.log("[CM] joinWallet coin: " + params.coin + " accountNum: " + params.accountNum)
-    const accountHd = self.deriveMyHdAccount(params.accountNum, undefined, undefined, params.coin)
+    const accountHd = self.deriveAccountHdKey(self.hdWallet, params.accountNum, params.coin)
     return self.rpc(C.ACCOUNT_JOIN, {
       code: params.code,
       accountNum: params.accountNum,
@@ -1244,7 +1303,7 @@ CM.prototype.accountJoin = function (params) {
       meta: params.meta
     })
   }).then(res => {
-    updateAccount(self, res.account, res.balance, res.accountInfo)
+    updateAccount(self, res.account, res.balance, res.accountInfo, self.hdWallet)
     return res
   })
 }
@@ -1278,7 +1337,7 @@ CM.prototype.accountUpdate = function (account, options) {
 }
 
 CM.prototype.accountDelete = function (account) {
-  var self = this
+  const self = this
   return this.rpc(C.ACCOUNT_DELETE, { pubId: account.pubId }).then(res => {
     delete self.walletData.accounts[account.pubId]
     delete self.walletData.balances[account.pubId]
@@ -1465,9 +1524,9 @@ CM.prototype.ptxCancel = function (ptx) {
 }
 
 CM.prototype.ptxSignFields = function (account, ptx) {
-  var num1 = simpleRandomInt(C.MAX_SUBPATH), num2 = simpleRandomInt(C.MAX_SUBPATH)
-  var node = this.deriveMyHdAccount(account.num, num1, num2, account.coin)
-  var sig = this.signMessageWithKP(account.coin, node.keyPair, ptx.rawTx)
+  const num1 = simpleRandomInt(C.MAX_SUBPATH), num2 = simpleRandomInt(C.MAX_SUBPATH)
+  const key = this.deriveAddressKey(account.num, num1, num2)
+  var sig = this.signMessageWithKP(account.coin, key.keyPair, ptx.rawTx)
   return this.rpc(C.ACCOUNT_PTX_SIGN_FIELDS, {
     data: ptx.id,
     num1: num1,
@@ -1529,8 +1588,13 @@ CM.prototype.ptxsGet = function (account, filter, pagingInfo) {
 }
 
 CM.prototype.signaturesPrepare = function (params) {
+  params.accountKeys = this.walletData.keys
+  return this._signaturesPrepare(params)
+}
+
+CM.prototype._signaturesPrepare = function (params) {
   const self = this
-  const hd = params.hd || this.hdWallet
+  const accountKeys = params.accountKeys
   const coin = params.coin
   const accountNum = params.accountNum
   const progressCallback = params.progressCallback
@@ -1545,7 +1609,8 @@ CM.prototype.signaturesPrepare = function (params) {
     if (!inputInfo)
       throwUnexpectedEx("Internal error: can't find info data for tx input #" + i)
     const accountAddress = inputInfo.aa
-    const key = self.deriveHdAccount(hd, accountNum, accountAddress.chain, accountAddress.hdindex, coin)
+    const accountKey = accountKeys[accountNum]
+    const key = self.deriveChainIndex(accountKey, accountAddress.chain, accountAddress.hdindex)
     let redeemScript
     if (accountAddress.redeemScript)
       redeemScript = Buffer.from(accountAddress.redeemScript, "hex")
@@ -1607,7 +1672,7 @@ CM.prototype.isAddressOfAccount = function (account, accountAddress) {
   var addr
   switch (account.type) {
     case C.TYPE_PLAIN_HD:
-      const key = this.deriveMyHdAccount(account.num, accountAddress.chain, accountAddress.hdindex, account.coin)
+      const key = this.deriveAddressKey(account.num, accountAddress.chain, accountAddress.hdindex)
       //addr = key.getAddress()
       addr = this.pubkeyToAddress(account.coin, key)
       break
@@ -1933,10 +1998,11 @@ CM.prototype.accountCancelLimitChange = function (account, limitType, tfa) {
 // TFA
 //
 
-CM.prototype.tfaGetWalletConfig = function () {
-  return this.rpc(C.TFA_GET_WALLET_CONFIG).then(function (res) {
-    return res.tfaConfig
-  })
+CM.prototype.tfaGetWalletConfig = function (account) {
+  const params = {}
+  if (account)
+    params.pubId = account.pubId
+  return this.rpc(C.TFA_GET_WALLET_CONFIG, params).then(res => res.tfaConfig)
 }
 
 CM.prototype.tfaEnrollStart = function (params, tfa) {
@@ -2115,13 +2181,11 @@ CM.prototype.sessionSetParams = function (params, tfa) {
 }
 
 CM.prototype.verifyInstantViaRest = function (account, address, hash, n) {
-  var node = this.deriveMyHdAccount(account.num, address.chain, address.hdindex, account.coin)
-  var data = this.prepareAddressSignature(account.coin, node.keyPair, C.MSG_PREFIX_INSTANT_VERIFY)
+  const node = this.deriveAddressKey(account.num, address.chain, address.hdindex)
+  const data = this.prepareAddressSignature(account.coin, node.keyPair, C.MSG_PREFIX_INSTANT_VERIFY)
   return fetch(this.peekRestPrefix() + "/verifyInstantTx?txHash=" + hash + "&outputNum=" + n + "&sig=" + encodeURIComponent(data.base64Sig), {
     headers: { "user-agent": C.MELIS_USER_AGENT }
-  }).then(function (res) {
-    return res.json()
-  })
+  }).then(res => res.json())
 }
 
 CM.prototype.prepareUnspentForkClaim = function (params) {
@@ -2338,9 +2402,12 @@ CM.prototype.recoveryPrepareSimpleTx = function (params) {
   this.log("[rebuildSingleTx] inputAmount:" + inputAmount + " fees: " + fees + " outputSig: " + outputSig.toString('hex') + " destAddress: " + destinationAddress)
   tx.addOutput(outputSig, inputAmount - fees)
 
-  return self.signaturesPrepare({
+  const accountHd = self.deriveAccountHdKey(self.hdNodeFromHexSeed(seed), accountInfo.accountNum, coin)
+  const accountKeys = {}
+  accountKeys[accountInfo.accountNum] = accountHd
+  return self._signaturesPrepare({
     coin,
-    hd: self.hdNodeFromHexSeed(seed),
+    accountKeys,
     accountNum: accountInfo.accountNum,
     rawTx: tx.toHex(),
     inputs: unspents
@@ -2373,7 +2440,7 @@ CM.prototype.recoveryPrepareMultiSigTx = function (accountInfo, tx, unspents, se
   seeds.forEach(seed => {
     const walletHd = self.hdNodeFromHexSeed(seed)
     const cosigner = cosigners.find(cosigner => {
-      const accountHd = self.deriveHdAccount(walletHd, cosigner.accountNum, undefined, undefined, coin)
+      const accountHd = self.deriveAccountHdKey(walletHd, cosigner.accountNum, coin)
       return self.hdNodeToBase58Xpub(accountHd, coin) === cosigner.xpub
     })
     if (!cosigner)
@@ -2384,10 +2451,12 @@ CM.prototype.recoveryPrepareMultiSigTx = function (accountInfo, tx, unspents, se
 
   const f = function (i) {
     const data = accountsData[i]
-    return self.signaturesPrepare({
+    const accountHd = self.deriveAccountHdKey(data.walletHd, data.accountNum, coin)
+    const accountKeys = {}
+    accountKeys[data.accountNum] = accountHd
+    return self._signaturesPrepare({
       coin,
-      //hd: self.hdNodeFromHexSeed(data.seed),
-      hd: data.walletHd,
+      accountKeys,
       accountNum: data.accountNum,
       rawTx: hexTx,
       inputs: unspents
