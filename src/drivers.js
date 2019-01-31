@@ -411,7 +411,6 @@ function extractPubKeyFromOutputScript(script) {
 function derivePubKeys_internal(self, xpubs, chain, hdIndex) {
   const keys = []
   for (var i = 0; i < xpubs.length; i++) {
-    //const hd = Bitcoin.HDNode.fromBase58(xpubs[i], network)
     const hd = self.hdNodeFromBase58(xpubs[i])
     const key = hd.derive(chain).derive(hdIndex)
     keys.push(key.getPublicKeyBuffer().toString('hex'))

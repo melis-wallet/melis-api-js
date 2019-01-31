@@ -1085,13 +1085,17 @@ CM.prototype.walletOpen = function (seed, params) {
     //self.log("[CM] walletOpen challenge: " + challengeHex + " seed: " + seed + " isProduction:"+self.isProdNet())
     const hd = self.hdNodeFromHexSeed(seed)
     // Keep the public key for ourselves
-    const loginKey = self.deriveKeyFromPath(hd, self.getLoginPath())
-    const challenge = Buffer.from(res.challenge, 'hex')
-    const signature = loginKey.sign(challenge)
+    const loginId = self.deriveKeyFromPath(hd, self.getLoginPath())
+    const chainCode = Buffer.alloc(32,"42", 'hex')
+    const loginHD = new Bitcoin.HDNode(loginId.keyPair, chainCode)
+    const loginPath = [simpleRandomInt(C.MAX_SUBPATH), simpleRandomInt(C.MAX_SUBPATH)]
+    const loginKey = self.deriveKeyFromPath(loginHD, loginPath)
+    const signature = loginKey.sign(Buffer.from(res.challenge, 'hex'))
     //self.log("child: " + child.getPublicKeyBuffer().toString('hex')() + " sig: " + signature)
     //self.log("pubKey: " + masterPubKey + " r: " + signature.r.toString() + " s: " + signature.s.toString())
     return self.rpc(C.WALLET_OPEN, {
-      id: loginKey.getPublicKeyBuffer().toString('hex'),
+      id: loginId.getPublicKeyBuffer().toString('hex'),
+      loginPath,
       signatureR: signature.r.toString(), signatureS: signature.s.toString(),
       sessionName: params.sessionName,
       deviceId: params.deviceId,
@@ -1112,16 +1116,14 @@ CM.prototype.accountOpen = function (extendedKey, params) {
     params = {}
   const accountHd = self.hdNodeFromBase58(extendedKey, params.coin)
   return this.getLoginChallenge().then(res => {
-    const loginPath = [42, 42]  // TODO: randomize
+    const loginPath = [simpleRandomInt(C.MAX_SUBPATH), simpleRandomInt(C.MAX_SUBPATH)]
     const loginKey = self.deriveKeyFromPath(accountHd, loginPath)
-    //const buf = Buffer.from(challenge, 'hex')
     const challenge = Buffer.from(res.challenge, 'hex')
     const signature = loginKey.sign(challenge)
     //self.log("child: " + child.getPublicKeyBuffer().toString('hex')() + " sig: " + signature)
     //self.log("pubKey: " + masterPubKey + " r: " + signature.r.toString() + " s: " + signature.s.toString())
     return self.rpc(C.ACCOUNT_OPEN, {
       xpub: self.hdNodeToBase58Xpub(accountHd),
-      id: accountHd.getPublicKeyBuffer().toString('hex'), // TODO: REMOVE
       loginPath,
       signatureR: signature.r.toString(), signatureS: signature.s.toString(),
       sessionName: params.sessionName,
@@ -1996,10 +1998,11 @@ CM.prototype.accountCancelLimitChange = function (account, limitType, tfa) {
 // TFA
 //
 
-CM.prototype.tfaGetWalletConfig = function () {
-  return this.rpc(C.TFA_GET_WALLET_CONFIG).then(function (res) {
-    return res.tfaConfig
-  })
+CM.prototype.tfaGetWalletConfig = function (account) {
+  const params = {}
+  if (account)
+    params.pubId = account.pubId
+  return this.rpc(C.TFA_GET_WALLET_CONFIG, params).then(res => res.tfaConfig)
 }
 
 CM.prototype.tfaEnrollStart = function (params, tfa) {
