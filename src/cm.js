@@ -1,4 +1,3 @@
-//const {fetch, Request, Response, Headers} = require('fetch-ponyfill')()
 require('isomorphic-fetch');
 const Q = require('q')
 const events = require('events')
@@ -532,10 +531,6 @@ CM.prototype.peekAccountMasterKey = function (account) {
   return this.walletData.keys[account.num]
 }
 
-// TODO: remove obsolete method
-CM.prototype.accountAddressToWIF = function (account, aa) {
-  return exportAddressKeyToWIF(account, aa)
-}
 CM.prototype.exportAddressKeyToWIF = function (account, aa) {
   const key = this.deriveAddressKey(account.num, aa.chain, aa.hdindex)
   return key.keyPair.toWIF()
@@ -588,7 +583,7 @@ CM.prototype.rpc = function (queue, data, headers, numRetries) {
 }
 
 CM.prototype.simpleRpcSlice = function (queue, data) {
-  return this.rpc(queue, data).then(function (res) {
+  return this.rpc(queue, data).then(res => {
     return res.slice
   })
 }
@@ -1423,6 +1418,8 @@ CM.prototype.addressesGet = function (account, optionsAndPaging) {
   var pars = addPagingInfo({ pubId: account.pubId }, optionsAndPaging)
   if (optionsAndPaging && optionsAndPaging.onlyActives)
     pars.onlyActives = optionsAndPaging.onlyActives
+  if (optionsAndPaging && optionsAndPaging.chain >= 0)
+    pars.chain = optionsAndPaging.chain
   return this.simpleRpcSlice(C.ACCOUNT_ADDRESSES_GET, pars)
 }
 
@@ -1487,18 +1484,9 @@ CM.prototype.ptxPrepare = function (account, recipients, options) {
     tfa: options.tfa,
     ptxOptions: {}
   }
-  if (options.selectAllUnspents)
-    params.ptxOptions.selectAllUnspents = options.selectAllUnspents
-  if (options.feeMultiplier)
-    params.ptxOptions.feeMultiplier = options.feeMultiplier
-  if (options.allowUnconfirmed)
-    params.ptxOptions.allowUnconfirmed = options.allowUnconfirmed
-  if (options.doInstant)
-    params.ptxOptions.doInstant = options.doInstant
-  if (options.disableRbf)
-    params.ptxOptions.disableRbf = options.disableRbf
-  if (options.satoshisPerByte)
-    params.ptxOptions.satoshisPerByte = options.satoshisPerByte
+  Object.keys(options)
+    .filter(k => k !== 'autoSignIfValidated')
+    .forEach(k =>  params.ptxOptions[k] = options[k])
   this.log("[CM ptxPrepare] params:", params)
   return this.rpc(C.ACCOUNT_PTX_PREPARE, params)
 }
@@ -1608,6 +1596,10 @@ CM.prototype._signaturesPrepare = function (params) {
     self.log("signInput #" + i + " account#: " + accountNum + " coin: " + coin + " intputInfo:", inputInfo)
     if (!inputInfo)
       throwUnexpectedEx("Internal error: can't find info data for tx input #" + i)
+    if (!inputInfo.aa) {
+      self.log("Skipping input with missing AA info")
+      return Promise.resolve()
+    }
     const accountAddress = inputInfo.aa
     const accountKey = accountKeys[accountNum]
     const key = self.deriveChainIndex(accountKey, accountAddress.chain, accountAddress.hdindex)
@@ -1662,14 +1654,16 @@ CM.prototype.signaturesSubmit = function (state, signatures, tfa) {
 }
 
 CM.prototype.areAddressesOfAccount = function (account, addresses) {
-  for (var i = 0; i < addresses.length; i++)
+  for (let i = 0; i < addresses.length; i++)
     if (!this.isAddressOfAccount(account, addresses[i].aa))
       return false
   return true
 }
 
 CM.prototype.isAddressOfAccount = function (account, accountAddress) {
-  var addr
+  if (!accountAddress)
+    return false
+  let addr
   switch (account.type) {
     case C.TYPE_PLAIN_HD:
       const key = this.deriveAddressKey(account.num, accountAddress.chain, accountAddress.hdindex)
@@ -1681,9 +1675,10 @@ CM.prototype.isAddressOfAccount = function (account, accountAddress) {
       addr = this.calcP2SH(account.coin, info, accountAddress.chain, accountAddress.hdindex)
   }
   this.log("[isAddressesOfAccount] type: " + account.type + " accountAddress: " + accountAddress.address + " calcAddr: " + addr)
+  let decodedAa, decodedAddr
   try {
-    var decodedAa = this.decodeCoinAddress(account.coin, accountAddress.address)
-    var decodedAddr = this.decodeCoinAddress(account.coin, addr)
+    decodedAa = this.decodeCoinAddress(account.coin, accountAddress.address)
+    decodedAddr = this.decodeCoinAddress(account.coin, addr)
   } catch (err) {
     return false
   }
@@ -1722,7 +1717,7 @@ CM.prototype.analyzeTx = function (state, options) {
   const tx = this.decodeTxFromBuffer(Buffer.from(ptx.rawTx, 'hex'))
   let amountInOur = 0, amountInOther = 0, amountToRecipients = 0
   let amountToChange = 0, amountToUnknown = 0
-  let error, i, j
+  let error, i
   //this.log("ANALYZE", ptx)
 
   // TODO: This code must be updated when the transaction contains unknown inputs, like in CoinJoin
@@ -1746,7 +1741,7 @@ CM.prototype.analyzeTx = function (state, options) {
   // Calc amount for defined recipients, for the change, and to unknown addresses
 
   // If recipients are Melis accounts we need to trust the server
-  for (j = 0; j < recipients.length; j++) {
+  for (let j = 0; j < recipients.length; j++) {
     if (recipients[j].pubId)
       recipients[j].validated = true
     else
@@ -1759,7 +1754,7 @@ CM.prototype.analyzeTx = function (state, options) {
     const toAddr = this.buildAddressFromScript(coin, output.script)
     const decodedTo = this.decodeCoinAddress(coin, toAddr)
     var isChange = false
-    for (j = 0; j < changes.length; j++) {
+    for (let j = 0; j < changes.length; j++) {
       const decodedChange = this.decodeCoinAddress(coin, changes[j].aa.address)
       //if (toAddr === changes[j].aa.address) {
       if (decodedTo.hash.equals(decodedChange.hash) && decodedTo.version === decodedChange.version) {
@@ -1771,7 +1766,7 @@ CM.prototype.analyzeTx = function (state, options) {
     }
     if (!isChange) {
       var isRecipient = false
-      for (j = 0; j < recipients.length; j++) {
+      for (let j = 0; j < recipients.length; j++) {
         var recipient = recipients[j]
         // When sending to Melis accounts we need to trust the server
         if (recipient.pubId || recipient.validated)
@@ -2178,6 +2173,18 @@ CM.prototype.sessionSetParams = function (params, tfa) {
       par[p] = params[p]
   })
   return this.rpc(C.SESSION_SET_PARAMS, par)
+}
+
+CM.prototype.getPaymentAddressViaRest = function (pubId, options) {
+  let fetchParams = "?"
+  if (options.info)
+    fetchParams += "&info="+encodeURIComponent(options.info)
+  if (options.address)
+    fetchParams += "&address="+encodeURIComponent(options.address)
+  return fetch(this.peekRestPrefix() + "/account/"+pubId+"/getPaymentAddress"+fetchParams, {
+    method: 'POST',
+    headers: { "user-agent": C.MELIS_USER_AGENT }
+  }).then(res => res.json())
 }
 
 CM.prototype.verifyInstantViaRest = function (account, address, hash, n) {
