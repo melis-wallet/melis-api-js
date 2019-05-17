@@ -15,9 +15,10 @@ if (args.length === 1) {
   var mnemonics = args.join(" ")
   if (bip39.validateMnemonic(mnemonics)) {
     var entropy = bip39.mnemonicToEntropy(mnemonics)
-    var seed = bip39.mnemonicToSeedHex(entropy)
+    var seed = bip39.mnemonicToSeedSync(entropy)
     console.log("ENTROPY: " + entropy)
-    console.log("SEED: " + seed.substring(0,64))
+    //console.log("SEED: " + seed.substring(0,64))
+    console.log("SEED: ", seed.slice(0,32).toString('hex'))
   } else {
     console.log("Mnemonics invalid: " + mnemonics)
   }
