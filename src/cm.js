@@ -1118,6 +1118,7 @@ CM.prototype.accountOpen = function (extendedKey, params) {
     //self.log("child: " + child.getPublicKeyBuffer().toString('hex')() + " sig: " + signature)
     //self.log("pubKey: " + masterPubKey + " r: " + signature.r.toString() + " s: " + signature.s.toString())
     return self.rpc(C.ACCOUNT_OPEN, {
+      coin: params.coin,
       xpub: self.hdNodeToBase58Xpub(accountHd),
       loginPath,
       signatureR: signature.r.toString(), signatureS: signature.s.toString(),

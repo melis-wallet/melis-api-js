@@ -373,6 +373,10 @@ function verifyMessageSignature(address, signature, message) {
   const { version, hash } = decodeBitcoinLegacyAddress(address)
   return BitcoinMessage.verify(message, hash, new Buffer(signature, 'base64'), this.network.messagePrefix)
 }
+function verifyMessageSignatureCash(address, signature, message) {
+  const { version, hash } = decodeBitcoinCashAddress(address, this)
+  return BitcoinMessage.verify(message, hash, new Buffer(signature, 'base64'), this.network.messagePrefix)
+}
 function verifyMessageSignatureGrs(address, signature, message) {
   //return verifyMessageSignature(address, signature, message, true)
   const { version, hash } = decodeGrsLegacyAddress(address, this)
@@ -643,6 +647,7 @@ const BTC_COMMON = {
 
 const BCH_COMMON = {
   C: BCH_CONSTS,
+  verifyMessageSignature: verifyMessageSignatureCash,
   isValidAddress: isValidBchAddress,
   toScriptSignature: toScriptSignatureCash,
   toOutputScript: toOutputScriptCash,
@@ -656,7 +661,7 @@ const BTC = Object.assign({ network: NETWORKS.bitcoin }, BTC_COMMON, COMMON_METH
 const TBTC = Object.assign({}, BTC, { network: NETWORKS.testnet })
 const RBTC = Object.assign({}, TBTC)
 
-const BCH = Object.assign({ network: NETWORKS.bitcoin, addressPrefix: PREFIX_MAINNET }, BCH_COMMON, COMMON_METHODS)
+const BCH = Object.assign({ network: NETWORKS.bitcoin, addressPrefix: PREFIX_MAINNET }, COMMON_METHODS, BCH_COMMON)
 const TBCH = Object.assign({}, BCH, { network: NETWORKS.testnet, addressPrefix: PREFIX_TESTNET })
 const RBCH = Object.assign({}, TBCH, { addressPrefix: PREFIX_REGTEST })
 
