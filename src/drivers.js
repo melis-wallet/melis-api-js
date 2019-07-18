@@ -662,7 +662,6 @@ const TBTC = Object.assign({}, BTC, { network: NETWORKS.testnet })
 const RBTC = Object.assign({}, TBTC)
 
 const BCH = Object.assign({ network: NETWORKS.bitcoin, addressPrefix: PREFIX_MAINNET }, COMMON_METHODS, BCH_COMMON)
-//BCH.verifyMessageSignature = verifyMessageSignatureCash
 const TBCH = Object.assign({}, BCH, { network: NETWORKS.testnet, addressPrefix: PREFIX_TESTNET })
 const RBCH = Object.assign({}, TBCH, { addressPrefix: PREFIX_REGTEST })
 

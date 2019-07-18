@@ -31,6 +31,28 @@ const HARDCODED_LTC_FEES = {
 const HARDCODED_BSV_FEES = HARDCODED_BCH_FEES
 const HARDCODED_DOGE_FEES = HARDCODED_BCH_FEES
 
+function getNetworkFeesEarnCom() {
+  return fetch("https://bitcoinfees.earn.com/api/v1/fees/recommended").then(res => {
+    if (res && res.status === 200)
+      return res.json()
+    else
+      return null
+  }).then(val => {
+    if (!val || !val.fastestFee)
+      return null
+    return prepareMelisFees({
+      provider: "earn.com",
+      fastestFee: val.fastestFee,
+      mediumFee: val.halfHourFee,
+      slowFee: val.hourFee
+    })
+  }).catch(err => {
+    logger.log("Error reading fees from earn.com:", err)
+    return Q(null)
+  })
+}
+
+// Stopped working
 function getNetworkFees21() {
   return fetch("https://bitcoinfees.21.co/api/v1/fees/recommended").then(res => {
     if (res && res.status === 200)
@@ -53,14 +75,17 @@ function getNetworkFees21() {
 }
 
 function getNetworkFeesBlockCypher(coin) {
-  var symbol
+  let symbol
   if (coin === C.COIN_PROD_LTC)
     symbol = "ltc"
   else if (coin === C.COIN_PROD_BTC)
     symbol = "btc"
+  else if (coin === C.COIN_PROD_DOGE)
+    symbol = "doge"
   else
-    return null
-  return fetch("https://api.blockcypher.com/v1/btc/main").then(res => {
+  return null
+  const url = "https://api.blockcypher.com/v1/"+symbol+"/main"
+  return fetch(url).then(res => {
     if (res && res.status === 200)
       return res.json()
     else
@@ -92,7 +117,7 @@ function getNetworkFeesBitgo() {
     //    if (!val.feeByBlockTarget || !val.feeByBlockTarget[2] || !val.feeByBlockTarget[4] || !val.feeByBlockTarget[10])
     //      return null
     return prepareMelisFees({
-      provider: "bitgo",
+      provider: "bitgo.com",
       fastestFee: Math.round(val.feePerKb / 1024),
       mediumFee: Math.round((val.feePerKb * 0.8) / 1024),
       slowFee: Math.round((val.feePerKb * 0.6) / 1024)
@@ -125,9 +150,10 @@ const feeProviders = {}
 feeProviders[C.COIN_PROD_BTC] = {
   'hardcoded': () => Q(HARDCODED_DEFAULT_FEES),
   'melis': () => getNetworkFeesMelis(C.COIN_PROD_BTC),
-  '21.co': getNetworkFees21,
-  'blockcypher': getNetworkFeesBlockCypher,
-  'bitgo': getNetworkFeesBitgo
+  //'21.co': getNetworkFees21,
+  'earn.com': getNetworkFeesEarnCom,
+  'blockcypher.com': () => getNetworkFeesBlockCypher(C.COIN_PROD_BTC),
+  'bitgo.com': getNetworkFeesBitgo
 }
 feeProviders[C.COIN_TEST_BTC] = {
   'hardcoded': () => Q(HARDCODED_BCH_FEES),
@@ -142,7 +168,6 @@ feeProviders[C.COIN_REGTEST_BTC] = {
 feeProviders[C.COIN_PROD_BCH] = {
   'hardcoded': () => Q(HARDCODED_BCH_FEES),
   'melis': () => getNetworkFeesMelis(C.COIN_PROD_BCH),
-  'blockcypher': () => getNetworkFeesBlockCypher(C.COIN_PROD_BCH)
 }
 feeProviders[C.COIN_TEST_BCH] = {
   'hardcoded': () => Q(HARDCODED_BCH_FEES),
@@ -156,7 +181,8 @@ feeProviders[C.COIN_REGTEST_BCH] = {
 // Litecoin
 feeProviders[C.COIN_PROD_LTC] = {
   'hardcoded': () => Q(HARDCODED_LTC_FEES),
-  'melis': () => getNetworkFeesMelis(C.COIN_PROD_LTC)
+  'melis': () => getNetworkFeesMelis(C.COIN_PROD_LTC),
+  'blockcypher.com': () => getNetworkFeesBlockCypher(C.COIN_PROD_LTC)
 }
 feeProviders[C.COIN_TEST_LTC] = {
   'hardcoded': () => Q(HARDCODED_LTC_FEES),
