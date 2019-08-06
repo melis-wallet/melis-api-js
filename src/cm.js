@@ -1741,9 +1741,9 @@ CM.prototype.analyzeTx = function (state, options) {
 
   // Calc amount for defined recipients, for the change, and to unknown addresses
 
-  // If recipients are Melis accounts we need to trust the server
   for (let j = 0; j < recipients.length; j++) {
-    if (recipients[j].pubId)
+    // If recipients have zero amount or are Melis accounts we need to trust the server
+    if (!recipients[j].amount || recipients[j].pubId)
       recipients[j].validated = true
     else
       recipients[j].decodedAddr = this.decodeCoinAddress(coin, recipients[j].address)
@@ -1752,6 +1752,11 @@ CM.prototype.analyzeTx = function (state, options) {
   // Mark our recipients to verify that none is left out
   for (i = 0; i < tx.outs.length; i++) {
     const output = tx.outs[i]
+
+    // We skip validation of zero amount outputs to allow OP_RETURN usage
+    if (output.value === 0)
+      continue
+
     const toAddr = this.buildAddressFromScript(coin, output.script)
     const decodedTo = this.decodeCoinAddress(coin, toAddr)
     var isChange = false
@@ -1765,13 +1770,20 @@ CM.prototype.analyzeTx = function (state, options) {
       }
       this.log("[Analyze] Output #" + i + " to: " + toAddr + " amount: " + output.value + " isChange: " + isChange)
     }
+
     if (!isChange) {
       var isRecipient = false
       for (let j = 0; j < recipients.length; j++) {
         var recipient = recipients[j]
+
         // When sending to Melis accounts we need to trust the server
         if (recipient.pubId || recipient.validated)
           continue
+
+        // We skip validation of zero amount outputs to allow OP_RETURN usage
+        if (recipient.amount === 0)
+          continue
+
         //if (toAddr === recipient.address) {
         if (decodedTo.hash.equals(recipient.decodedAddr.hash) && decodedTo.version === recipient.decodedAddr.version) {
           if (recipient.isRemainder || output.value === recipient.amount) {
@@ -1840,7 +1852,7 @@ CM.prototype.preparePayAllToAddress = function (account, address, options) {
 }
 
 CM.prototype.payPrepare = function (account, recipients, options) {
-  var self = this
+  const self = this
   if (!recipients)
     recipients = []
   if (recipients.length === 0 && (!options || !options.unspents))
@@ -1849,14 +1861,14 @@ CM.prototype.payPrepare = function (account, recipients, options) {
     const recipient = recipients[i]
     if (recipient.address && !self.isValidAddress(account.coin, recipient.address))
       return failPromiseWithEx(buildInvalidAddressEx(recipient.address, "Invalid address: " + recipient.address))
-    if (!recipient.address && !recipient.pubId)
-      return failPromiseWithBadParam("recipient", "Missing address or pubId in recipient")
-    var v = parseInt(recipient.amount)
+    if (!recipient.address && !recipient.pubId && !recipient.payloadBase64)
+      return failPromiseWithBadParam("recipient", "Missing address, pubId or payload in recipient")
+    const v = parseInt(recipient.amount)
     if (v === undefined || v === null || v < 0)
       return failPromiseWithBadParam("amount", "Invalid amount: " + v)
     recipient.amount = v
   }
-  var state = { account: account, recipients: recipients }
+  const state = { account: account, recipients: recipients }
   return this.ensureAccountInfo(account).then(function (account) {
     state.account = account
     return self.ptxPrepare(account, recipients, options)
