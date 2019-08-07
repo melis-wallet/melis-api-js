@@ -1,8 +1,9 @@
 require('isomorphic-fetch');
 const Q = require('q')
 const C = require("./cm-constants")
-const Logger = require("./logger")
-const logger = new Logger()
+// const Logger = require("./logger")
+// const logger = new Logger()
+const logger = require("./logger")
 
 const HARDCODED_DEFAULT_FEES = {
   detail: { provider: "hardcoded" },

@@ -2,7 +2,6 @@ function Logger(config) {
   this.logObj = console
 }
 
-
 Logger.prototype.setLogObject = function (newObj) {
   this.logObj = newObj
 }
@@ -28,4 +27,4 @@ Logger.prototype.logError = function (a, b) {
     this.logObj.error(a)
 }
 
-module.exports = Logger
+module.exports = new Logger()
