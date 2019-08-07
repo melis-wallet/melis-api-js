@@ -15,8 +15,10 @@ const C = require("./cm-constants")
 const MelisErrorModule = require("./melis-error")
 const MelisError = MelisErrorModule.MelisError
 const throwUnexpectedEx = MelisErrorModule.throwUnexpectedEx
-const Logger = require("./logger")
-const logger = new Logger()
+
+// const Logger = require("./logger")
+// const logger = new Logger()
+const logger = require("./logger")
 
 const PREFIX_MAINNET = "bitcoincash"
 const PREFIX_TESTNET = "bchtest"

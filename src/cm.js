@@ -12,6 +12,7 @@ const C = require("./cm-constants")
 const FeeApi = require("./fee-api")
 const BC_APIS = require("./blockchain-apis")
 const CoinDrivers = require("./drivers")
+const logger = require("./logger")
 const MelisErrorModule = require("./melis-error")
 const MelisError = MelisErrorModule.MelisError
 const throwUnexpectedEx = MelisErrorModule.throwUnexpectedEx
@@ -63,7 +64,7 @@ function updateAccount(target, account, balance, info, hdWallet) {
 
 function updateServerConfig(target, config) {
   if (config.message)
-    target.log("Server message status: " + config.message)
+    logger.log("Server message status: " + config.message)
   target.useTestPaths = !(!config.platform || config.platform === "production")
   target.cmConfiguration = config
   target.lastBlocks = config.topBlocks
@@ -78,18 +79,18 @@ function possiblyIncompleteAccountInfo(info) {
 function emitEvent(target, event, params) {
   target.lastReceivedMsgDate = new Date()
   if (event === C.EVENT_DISCONNECT_REQ) {
-    target.log("Server requested to disconnect:", params)
+    logger.log("Server requested to disconnect:", params)
     return handleConnectionLoss(target, true)
   }
   if (event === C.EVENT_PING)
     target.stompClient.send(C.UTILS_PONG, {}, {})
   if (event !== C.EVENT_RPC_ACTIVITY_END && event !== C.EVENT_RPC_ACTIVITY_START)
-    target.log("[CM emitEvent] " + event + " params: " + JSON.stringify(params))
+    logger.log("[CM emitEvent] " + event + " params: " + JSON.stringify(params))
   if (event === C.EVENT_CONFIG)
     updateServerConfig(target, params)
   var listeners = target.listeners(event)
   if (!listeners.length) {
-    //target.log("[CM emitEvent] nessun listener per l'evento '" + event + "'")
+    //logger.log("[CM emitEvent] nessun listener per l'evento '" + event + "'")
     target.emit(C.UNHANDLED_EVENT, { name: event, params: params })
   } else {
     target.emit(event, params)
@@ -194,7 +195,7 @@ function keepAliveFunction(target) {
   var secsElapsed = (nowTime - lastMsgTime) / 1000 + 1
   // console.log("[KEEPALIVE] elapsed from last msg: " + secsElapsed + " minKeepAlive: " + target.maxKeepAliveSeconds)
   if (secsElapsed >= target.maxKeepAliveSeconds + 20) {
-    target.logWarning("No response from server since " + secsElapsed + " seconds: DISCONNECTING")
+    logger.logWarning("No response from server since " + secsElapsed + " seconds: DISCONNECTING")
     handleConnectionLoss(target)
   } else if (secsElapsed >= target.maxKeepAliveSeconds / 2) {
     target.ping()
@@ -202,26 +203,26 @@ function keepAliveFunction(target) {
 }
 
 function rpcReplyHandler(target, res) {
-  // target.log("[STOMP] Ricevuta risposta RPC: " + res)
+  // logger.log("[STOMP] Ricevuta risposta RPC: " + res)
   //var messageId = res.headers.myId
   target.lastReceivedMsgDate = new Date()
   var message = JSON.parse(res.body)
   var messageId = message.id
-  //target.log("[STOMP] rpcReplyHandler message: " + JSON.stringify(message))
+  //logger.log("[STOMP] rpcReplyHandler message: " + JSON.stringify(message))
   if (messageId) {
     var rpcData = target.waitingReplies[messageId]
     delete target.waitingReplies[messageId]
     if (rpcData)
       rpcData.deferred.resolve(message.m)
     else
-      target.logError("[STOMP] RPC reply con ID: " + messageId + " non trovato in coda")
+      logger.logError("[STOMP] RPC reply con ID: " + messageId + " non trovato in coda")
   } else {
-    target.logWarning("[STOMP] RPC reply senza ID:", message)
+    logger.logWarning("[STOMP] RPC reply senza ID:", message)
   }
 }
 
 function rpcErrorHandler(target, res) {
-  target.log("[STOMP] RPC Exception:", res)
+  logger.log("[STOMP] RPC Exception:", res)
   target.lastReceivedMsgDate = new Date()
   //var messageId = res.headers.myId
   var message = JSON.parse(res.body)
@@ -232,20 +233,20 @@ function rpcErrorHandler(target, res) {
     if (rpcData) {
       if (message.ex === C.EX_TOO_MANY_REQUESTS && rpcData.numRetries < target.rpcMaxRetries) {
         var rpcRetryDelay = target.rpcRetryDelay * rpcData.numRetries
-        target.log("Server requested to slow down requests -- retry #" + rpcData.numRetries + " waiting " + rpcRetryDelay + "ms")
+        logger.log("Server requested to slow down requests -- retry #" + rpcData.numRetries + " waiting " + rpcRetryDelay + "ms")
         setTimeout(function () {
-          target.log("Preparing new request")
+          logger.log("Preparing new request")
           target.rpc(rpcData.queue, rpcData.data, rpcData.headers, rpcData.numRetries + 1).then(function (res) {
             rpcData.deferred.resolve(res)
           }).catch(function (res) {
-            target.log("RE-REQUEST FAILED:", res)
+            logger.log("RE-REQUEST FAILED:", res)
             rpcData.deferred.reject(buildMelisErrorFromServerEx(res))
           })
         }, rpcRetryDelay)
       } else
         rpcData.deferred.reject(buildMelisErrorFromServerEx(message))
     } else {
-      target.logError("[STOMP] RPC Error -- Unable to find request with ID: " + messageId)
+      logger.logError("[STOMP] RPC Error -- Unable to find request with ID: " + messageId)
     }
   }
 }
@@ -277,25 +278,16 @@ function CM(config) {
 
 CM.prototype = Object.create(events.EventEmitter.prototype)
 
-CM.prototype.log = function (a, b) {
-  if (a && b)
-    console.log(a, b)
+// by default f is console
+CM.prototype.setLogger = function (f) {
+  if (f)
+    logger.setLogObject(f)
   else
-    console.log(a)
-}
-
-CM.prototype.logWarning = function (a, b) {
-  if (a && b)
-    console.warn(a, b)
-  else
-    console.warn(a)
-}
-
-CM.prototype.logError = function (a, b) {
-  if (a && b)
-    console.error(a, b)
-  else
-    console.error(a)
+    logger.setLogObject({
+      log: (a, b) => {},
+      logWarning: (a, b) => {},
+      logError: (a, b) => {}
+    })
 }
 
 CM.prototype.getRpcTimeout = function () {
@@ -537,7 +529,7 @@ CM.prototype.exportAddressKeyToWIF = function (account, aa) {
 }
 
 CM.prototype.rpc = function (queue, data, headers, numRetries) {
-  this.log("[RPC] q: " + queue + (headers ? " h: " + JSON.stringify(headers) : " no headers") + (data ? " data: " + JSON.stringify(data) : " no data"))
+  logger.log("[RPC] q: " + queue + (headers ? " h: " + JSON.stringify(headers) : " no headers") + (data ? " data: " + JSON.stringify(data) : " no data"))
   if (!this.connected)
     return Q.reject(buildConnectionFailureEx("RPC call without connection"))
   if (!queue)
@@ -556,7 +548,7 @@ CM.prototype.rpc = function (queue, data, headers, numRetries) {
     data: data,
     numRetries: numRetries || 1
   }
-  // this.log("[STOMP] queue: " + queue + " data: " + JSON.stringify(data) + " typeof(data): " + typeof data)
+  // logger.log("[STOMP] queue: " + queue + " data: " + JSON.stringify(data) + " typeof(data): " + typeof data)
   if (!headers)
     headers = {}
   headers.id = rpcCounter
@@ -566,7 +558,7 @@ CM.prototype.rpc = function (queue, data, headers, numRetries) {
     this.stompClient.send(queue, "{}", headers)
   var self = this
   return deferred.promise.timeout(this.rpcTimeout).catch(function (err) {
-    self.log("[RPC] Ex or Timeout -- res: ", err)
+    logger.log("[RPC] Ex or Timeout -- res: ", err)
     var ex
     if (err.code && err.code === 'ETIMEDOUT') {
       ex = new MelisError('RpcTimeoutException', 'RPC call timeout after ' + self.rpcTimeout + 'ms')
@@ -591,7 +583,7 @@ CM.prototype.simpleRpcSlice = function (queue, data) {
 // Fetch the STOMP endpoint from the melis discover server
 function fetchStompEndpoint(self) {
   var discoveryUrl = self.apiDiscoveryUrl
-  self.log("Discovering STOMP endpoint using: ", discoveryUrl)
+  logger.log("Discovering STOMP endpoint using: ", discoveryUrl)
   return fetch(discoveryUrl, {
     headers: { "user-agent": "melis-js-api/" + C.CLIENT_API_VERSION }
   }).then(function (res) {
@@ -599,7 +591,7 @@ function fetchStompEndpoint(self) {
       throw new MelisError('DiscoveryEx', 'Bad status code: ' + res.status)
     return res.json()
   }).then(function (discovered) {
-    self.log("Discovery result: ", discovered)
+    logger.log("Discovery result: ", discovered)
     self.apiUrls = discovered
     if (discovered.publicUrlPrefix || discovered.stompEndpoint)
       return discovered
@@ -616,7 +608,7 @@ function fetchStompEndpoint(self) {
 }
 
 function enableKeepAliveFunc(self) {
-  self.log("[enableKeepAliveFunc] self.keepAliveFunc: " + self.keepAliveFunc)
+  logger.log("[enableKeepAliveFunc] self.keepAliveFunc: " + self.keepAliveFunc)
   if (self.disableKeepAlive || self.keepAliveFunc)
     return
   self.keepAliveFunc = setInterval(function () {
@@ -625,7 +617,7 @@ function enableKeepAliveFunc(self) {
 }
 
 function disableKeepAliveFunc(self) {
-  self.log("[disableKeepAliveFunc] self.keepAliveFunc: " + self.keepAliveFunc)
+  logger.log("[disableKeepAliveFunc] self.keepAliveFunc: " + self.keepAliveFunc)
   if (self.keepAliveFunc) {
     clearInterval(self.keepAliveFunc)
     self.keepAliveFunc = null
@@ -642,7 +634,7 @@ function disableAutoReconnect(self) {
 function stompDisconnected(self, frame, deferred) {
   var wasConnected = self.connected
   var wasPaused = self.paused
-  self.log("[CM] stompDisconnected wasConnected: " + wasConnected + " wasPaused: " + wasPaused)// + " err.code: " + frame.code + " err.wasClean: " + frame.wasClean)
+  logger.log("[CM] stompDisconnected wasConnected: " + wasConnected + " wasPaused: " + wasPaused)// + " err.code: " + frame.code + " err.wasClean: " + frame.wasClean)
   self.stompClient = null
   self.connected = false
   self.connecting = false
@@ -652,11 +644,11 @@ function stompDisconnected(self, frame, deferred) {
   if (deferred)
     deferred.reject(frame)
 
-  //self.log("Open requests: ", Object.keys(self.waitingReplies))
+  //logger.log("Open requests: ", Object.keys(self.waitingReplies))
   Object.keys(self.waitingReplies).forEach(function (i) {
     var rpcData = self.waitingReplies[i]
     delete self.waitingReplies[i]
-    self.log('[CM] Cancelling open rpc request:', rpcData)
+    logger.log('[CM] Cancelling open rpc request:', rpcData)
     rpcData.deferred.reject(buildConnectionFailureEx("Disconnected"))
   })
   self.waitinReplies = {}
@@ -667,7 +659,7 @@ function stompDisconnected(self, frame, deferred) {
 
   if (self.autoReconnectDelay > 0 && self.autoReconnectFunc === null) {
     var timeout = 10 + Math.random() * 10 + Math.random() * (self.autoReconnectDelay / 10)
-    self.log("[CM] NEXT AUTO RECONNECT in " + timeout + " seconds")
+    logger.log("[CM] NEXT AUTO RECONNECT in " + timeout + " seconds")
     self.autoReconnectFunc = setTimeout(function () {
       self.autoReconnectFunc = null
       self.connect(self.lastConfig)
@@ -676,10 +668,10 @@ function stompDisconnected(self, frame, deferred) {
 }
 
 function retryConnect(self, config, errorMessage) {
-  self.log(errorMessage)
+  logger.log(errorMessage)
   if (self.autoReconnectDelay > 0) {
     var timeout = 10 + Math.random() * 10 + Math.random() * (self.autoReconnectDelay / 10)
-    self.log("[CM] retryConnect in " + timeout + " seconds")
+    logger.log("[CM] retryConnect in " + timeout + " seconds")
     return Q.delay(timeout * 1000).then(function () {
       self.connecting = false
       return self.connect(config)
@@ -714,7 +706,7 @@ CM.prototype.connect = function (config) {
   return discoverer.then(stompEndpoint => {
     return self.connect_internal(stompEndpoint, config)
   }).catch(err => {
-    self.log("Discover err:", err)
+    logger.log("Discover err:", err)
     const errMsg = 'Unable to connect: ' + err.ex + " : " + err.msg
     const callback = config ? config.connectProgressCallback : null
     if (callback && typeof callback === 'function')
@@ -734,24 +726,24 @@ CM.prototype.connect_internal = function (stompEndpoint, config) {
   const options = { debug: false, heartbeat: false, protocols: ['v12.stomp'] }
   if ((/^wss?:\/\//).test(stompEndpoint)) {
     if (isNode) {
-      self.log("[STOMP] Opening websocket (node):", stompEndpoint)
+      logger.log("[STOMP] Opening websocket (node):", stompEndpoint)
       const ws = new WebSocketClient(stompEndpoint)
       ws.on('error', function (error) {
-        self.log('[connect_internal] CONNECT ERROR:' + error.code)
+        logger.log('[connect_internal] CONNECT ERROR:' + error.code)
         deferred.reject(error)
       })
       this.stompClient = Stomp.over(ws, options)
     } else {
-      self.log("[STOMP] Opening websocket (browser) to " + stompEndpoint + " options:", options)
+      logger.log("[STOMP] Opening websocket (browser) to " + stompEndpoint + " options:", options)
       this.stompClient = Stomp.client(stompEndpoint, options)
     }
   } else {
-    self.log("[STOMP] Opening sockjs:", stompEndpoint)
+    logger.log("[STOMP] Opening sockjs:", stompEndpoint)
     this.stompClient = Stomp.over(new SockJS(stompEndpoint), options)
   }
 
   this.stompClient.debug = function (str) {
-    //self.log(str)
+    //logger.log(str)
   }
   var headers = {}
   if (config && config.userAgent)
@@ -763,7 +755,7 @@ CM.prototype.connect_internal = function (stompEndpoint, config) {
   this.lastConfig = config
 
   this.stompClient.connect(headers, function (frame) {
-    self.log("[CM] Connected to websocket: " + frame)
+    logger.log("[CM] Connected to websocket: " + frame)
     self.connected = true
     self.connecting = false
     self.paused = false
@@ -777,7 +769,7 @@ CM.prototype.connect_internal = function (stompEndpoint, config) {
     })
 
     self.stompClient.subscribe(C.QUEUE_SERVER_EVENTS, function (message) {
-      //self.log("[CM] Server event: " + message.body)
+      //logger.log("[CM] Server event: " + message.body)
       var msg = JSON.parse(message.body)
       emitEvent(self, msg.type, msg.params)
     })
@@ -833,7 +825,7 @@ CM.prototype.disconnect = function () {
     return Q()
   var deferred = Q.defer()
   this.stompClient.disconnect(res => {
-    self.log("[CM] STOMP Client disconnect: " + res)
+    logger.log("[CM] STOMP Client disconnect: " + res)
     this.stompClient = null
     initializePrivateFields(self)
     deferred.resolve(res)
@@ -869,13 +861,13 @@ CM.prototype.verifyConnectionEstablished = function (timeout) {
     timeout = 5
   if (timeout > this.maxKeepAliveSeconds)
     timeout = this.maxKeepAliveSeconds
-  self.log("[verifyConnectionEstablished] connected: " + this.connected + " timeout: " + timeout + " stompClient: " + (this.stompClient ? "yes" : "no"))
+  logger.log("[verifyConnectionEstablished] connected: " + this.connected + " timeout: " + timeout + " stompClient: " + (this.stompClient ? "yes" : "no"))
   if (!this.stompClient)
     return Q()
   if (!this.connected)
     return this.connect()
   return this.ping().timeout(timeout * 1000).catch(function (err) {
-    self.log("[verifyConnectionEstablished] ping timeout after " + timeout + " seconds")
+    logger.log("[verifyConnectionEstablished] ping timeout after " + timeout + " seconds")
     return handleConnectionLoss(self)
   }).then(function () {
     enableKeepAliveFunc(self)
@@ -887,7 +879,7 @@ CM.prototype.subscribe = function (queue, callback, headers) {
     throwBadParamEx('queue', "Call to subscribe without defined queue or callback")
   var self = this
   return this.stompClient.subscribe(queue, function (res) {
-    // self.log("[CM] message to queue " + queue + " : ", res)
+    // logger.log("[CM] message to queue " + queue + " : ", res)
     var msg = JSON.parse(res.body)
     callback(msg)
   }, headers)
@@ -919,14 +911,14 @@ CM.prototype.getPaymentAddressForAccount = function (accountIdOrAlias, param) {
       opts.address = param.address
   }
   return this.rpc(C.GET_PAYMENT_ADDRESS, opts).then(function (res) {
-    //this.log("[CM] getPaymentAddress: ", res)
+    //logger.log("[CM] getPaymentAddress: ", res)
     return res.address
   })
 }
 
 CM.prototype.accountGetPublicInfo = function (params) {
   return this.rpc(C.GET_ACCOUNT_PUBLIC_INFO, { name: params.name, code: params.code }).then(function (res) {
-    //this.log("[CM] accountGetPublicInfo: " + JSON.stringify(res))
+    //logger.log("[CM] accountGetPublicInfo: " + JSON.stringify(res))
     return res.account
   })
 }
@@ -982,7 +974,7 @@ CM.prototype.deviceSetPassword = function (deviceName, pin) {
     userPin: pin
   }).then(function (res) {
     // The result is base64 encoded
-    self.log("[CM] setDeviceName:", res)
+    logger.log("[CM] setDeviceName:", res)
     return { deviceId: res.info }
   })
 }
@@ -995,7 +987,7 @@ CM.prototype.deviceGetPassword = function (deviceId, pin) {
     deviceId: deviceId,
     userPin: pin
   }).then(function (res) {
-    self.log("[CM] getDevicePassword:", res)
+    logger.log("[CM] getDevicePassword:", res)
     return res.info
   })
 }
@@ -1077,7 +1069,7 @@ CM.prototype.walletOpen = function (seed, params) {
   if (!params)
     params = {}
   return this.getLoginChallenge().then(res => {
-    //self.log("[CM] walletOpen challenge: " + challengeHex + " seed: " + seed + " isProduction:"+self.isProdNet())
+    //logger.log("[CM] walletOpen challenge: " + challengeHex + " seed: " + seed + " isProduction:"+self.isProdNet())
     const hd = self.hdNodeFromHexSeed(seed)
     // Keep the public key for ourselves
     const loginId = self.deriveKeyFromPath(hd, self.getLoginPath())
@@ -1086,8 +1078,8 @@ CM.prototype.walletOpen = function (seed, params) {
     const loginPath = [simpleRandomInt(C.MAX_SUBPATH), simpleRandomInt(C.MAX_SUBPATH)]
     const loginKey = self.deriveKeyFromPath(loginHD, loginPath)
     const signature = loginKey.sign(Buffer.from(res.challenge, 'hex'))
-    //self.log("child: " + child.getPublicKeyBuffer().toString('hex')() + " sig: " + signature)
-    //self.log("pubKey: " + masterPubKey + " r: " + signature.r.toString() + " s: " + signature.s.toString())
+    //logger.log("child: " + child.getPublicKeyBuffer().toString('hex')() + " sig: " + signature)
+    //logger.log("pubKey: " + masterPubKey + " r: " + signature.r.toString() + " s: " + signature.s.toString())
     return self.rpc(C.WALLET_OPEN, {
       id: loginId.getPublicKeyBuffer().toString('hex'),
       loginPath,
@@ -1097,7 +1089,7 @@ CM.prototype.walletOpen = function (seed, params) {
       usePinAsTfa: params.usePinAsTfa
     }).then(res => {
       const wallet = res.wallet
-      self.log("[CM] walletOpen pubKey:" + wallet.pubKey + self.isProdNet() + " #accounts: " + Object.keys(wallet.accounts).length + " isProdNet: ")
+      logger.log("[CM] walletOpen pubKey:" + wallet.pubKey + self.isProdNet() + " #accounts: " + Object.keys(wallet.accounts).length + " isProdNet: ")
       walletOpen(self, hd, wallet)
       self.lastOpenParams = { seed: seed, sessionName: params.sessionName, deviceId: params.deviceId }
       return wallet
@@ -1115,8 +1107,8 @@ CM.prototype.accountOpen = function (extendedKey, params) {
     const loginKey = self.deriveKeyFromPath(accountHd, loginPath)
     const challenge = Buffer.from(res.challenge, 'hex')
     const signature = loginKey.sign(challenge)
-    //self.log("child: " + child.getPublicKeyBuffer().toString('hex')() + " sig: " + signature)
-    //self.log("pubKey: " + masterPubKey + " r: " + signature.r.toString() + " s: " + signature.s.toString())
+    //logger.log("child: " + child.getPublicKeyBuffer().toString('hex')() + " sig: " + signature)
+    //logger.log("pubKey: " + masterPubKey + " r: " + signature.r.toString() + " s: " + signature.s.toString())
     return self.rpc(C.ACCOUNT_OPEN, {
       coin: params.coin,
       xpub: self.hdNodeToBase58Xpub(accountHd),
@@ -1127,7 +1119,7 @@ CM.prototype.accountOpen = function (extendedKey, params) {
       usePinAsTfa: params.usePinAsTfa
     }).then(res => {
       const wallet = res.wallet
-      self.log("[CM] accountOpen isProdNet: " + self.isProdNet+" wallet: ", wallet)
+      logger.log("[CM] accountOpen isProdNet: " + self.isProdNet+" wallet: ", wallet)
       walletOpen(self, accountHd, wallet, true)
       self.lastOpenParams = { accountExtendedKey: extendedKey, sessionName: params.sessionName, deviceId: params.deviceId }
       return wallet
@@ -1145,10 +1137,10 @@ CM.prototype.walletRegister = function (seed, params) {
     //var hd = self.hdNodeFromHexSeed(self.isProdNet() ? C.COIN_PROD_BTC : C.COIN_TEST_BTC, seed)
     var hd = self.hdNodeFromHexSeed(seed)
     loginKey = self.deriveKeyFromPath(hd, self.getLoginPath())
-    //self.log('REGISTER hd: ', hd, ' loginKey: ', loginKey)
+    //logger.log('REGISTER hd: ', hd, ' loginKey: ', loginKey)
   } catch (error) {
     var ex = { ex: "clientAssertFailure", msg: error.message }
-    self.log(ex)
+    logger.log(ex)
     return Q.reject(ex)
   }
   return self.rpc(C.WALLET_REGISTER, {
@@ -1157,7 +1149,7 @@ CM.prototype.walletRegister = function (seed, params) {
     deviceId: params.deviceId,
     usePinAsTfa: params.usePinAsTfa
   }).then(res => {
-    self.log("[CM] walletRegister: ", res)
+    logger.log("[CM] walletRegister: ", res)
     walletOpen(self, hd, res.wallet)
     self.lastOpenParams = { seed: seed, sessionName: params.sessionName, deviceId: params.deviceId }
     return res.wallet
@@ -1187,7 +1179,7 @@ CM.prototype.walletGetNotifications = function (fromDate, pagingInfo) {
 CM.prototype.walletGetInfo = function () {
   var self = this
   return this.rpc(C.WALLET_GET_INFO).then(function (res) {
-    self.log("walletGetInfo:", res)
+    logger.log("walletGetInfo:", res)
     updateWalletInfo(self, res.info)
     return res.info
   })
@@ -1263,7 +1255,7 @@ CM.prototype.accountCreate = function (params) {
     numPromise = Q(params.accountNum)
   const self = this
   return numPromise.then(accountNum => {
-    this.log("[CM] accountCreate coin: " + params.coin + " accountNum: " + params.accountNum)
+    logger.log("[CM] accountCreate coin: " + params.coin + " accountNum: " + params.accountNum)
     params.accountNum = accountNum
     const accountHd = self.deriveAccountHdKey(self.hdWallet, accountNum, params.coin)
     params.xpub = self.hdNodeToBase58Xpub(accountHd, params.coin)
@@ -1276,7 +1268,7 @@ CM.prototype.accountCreate = function (params) {
 
 CM.prototype.accountJoin = function (params) {
   const self = this
-  this.log("[CM] joinWallet params:", params)
+  logger.log("[CM] joinWallet params:", params)
   var numPromise = Q(params.accountNum)
   if (params.accountNum === undefined)
     numPromise = self.getFreeAccountNum().then(num => {
@@ -1290,7 +1282,7 @@ CM.prototype.accountJoin = function (params) {
     })
 
   return numPromise.then(coinPromise).then(() => {
-    this.log("[CM] joinWallet coin: " + params.coin + " accountNum: " + params.accountNum)
+    logger.log("[CM] joinWallet coin: " + params.coin + " accountNum: " + params.accountNum)
     const accountHd = self.deriveAccountHdKey(self.hdWallet, params.accountNum, params.coin)
     return self.rpc(C.ACCOUNT_JOIN, {
       code: params.code,
@@ -1318,7 +1310,7 @@ CM.prototype.accountRefresh = function (account) {
 CM.prototype.accountUpdate = function (account, options) {
   if (!options || typeof options !== 'object')
     return
-  this.log("[accountUpdate] " + account.pubId + " :", options)
+  logger.log("[accountUpdate] " + account.pubId + " :", options)
   var self = this
   return this.rpc(C.ACCOUNT_UPDATE, {
     pubId: account.pubId,
@@ -1476,7 +1468,7 @@ CM.prototype.getAllLabels = function (account) {
 }
 
 CM.prototype.ptxPrepare = function (account, recipients, options) {
-  this.log("[CM ptxPrepare] account: " + account.pubId + " to: " + JSON.stringify(recipients) + " opts: ", options)
+  logger.log("[CM ptxPrepare] account: " + account.pubId + " to: " + JSON.stringify(recipients) + " opts: ", options)
   options = options || {}
   var params = {
     pubId: account.pubId,
@@ -1488,7 +1480,7 @@ CM.prototype.ptxPrepare = function (account, recipients, options) {
   Object.keys(options)
     .filter(k => k !== 'autoSignIfValidated')
     .forEach(k =>  params.ptxOptions[k] = options[k])
-  this.log("[CM ptxPrepare] params:", params)
+  logger.log("[CM ptxPrepare] params:", params)
   return this.rpc(C.ACCOUNT_PTX_PREPARE, params)
 }
 
@@ -1547,7 +1539,7 @@ CM.prototype.ptxVerifyFieldsSignature = function (account, ptx) {
       xpub = cosignerData.xpub
     }
     const keyMessage = ptx.meta.ownerSig
-    self.log("ptx keyMessage:", keyMessage)
+    logger.log("ptx keyMessage:", keyMessage)
     const keyPath = keyMessage.keyPath
     const hd = self.hdNodeFromBase58(xpub, account.coin)
     const node = hd.derive(keyPath[0]).derive(keyPath[1])
@@ -1556,9 +1548,9 @@ CM.prototype.ptxVerifyFieldsSignature = function (account, ptx) {
     var ptxSigVerified = false
     try {
       ptxSigVerified = self.verifyMessageSignature(account.coin, address, keyMessage.ptxSig, ptx.rawTx)
-      self.log("[CM] ptx#" + ptx.id + " address: " + address + " VERIFIED: " + ptxSigVerified)
+      logger.log("[CM] ptx#" + ptx.id + " address: " + address + " VERIFIED: " + ptxSigVerified)
     } catch (ex) {
-      self.log("verifyBitcoinMessageEx: ", ex)
+      logger.log("verifyBitcoinMessageEx: ", ex)
     }
     if (!ptxSigVerified)
       throwInvalidSignatureEx("PTX owner signature invalid")
@@ -1594,11 +1586,11 @@ CM.prototype._signaturesPrepare = function (params) {
 
   const signInput = function (i) {
     const inputInfo = inputs[i]
-    self.log("signInput #" + i + " account#: " + accountNum + " coin: " + coin + " intputInfo:", inputInfo)
+    logger.log("signInput #" + i + " account#: " + accountNum + " coin: " + coin + " intputInfo:", inputInfo)
     if (!inputInfo)
       throwUnexpectedEx("Internal error: can't find info data for tx input #" + i)
     if (!inputInfo.aa) {
-      self.log("Skipping input with missing AA info")
+      logger.log("Skipping input with missing AA info")
       return Promise.resolve()
     }
     const accountAddress = inputInfo.aa
@@ -1611,7 +1603,7 @@ CM.prototype._signaturesPrepare = function (params) {
       redeemScript = self.toOutputScript(coin, self.pubkeyToAddress(coin, key)) // o inputInfo.script
     const hashForSignature = self.hashForSignature(coin, tx, i, redeemScript, inputInfo.amount, Bitcoin.Transaction.SIGHASH_ALL)
     const signature = key.sign(hashForSignature)
-    //self.log("[signed input #" + i + "] redeemScript: " + redeemScript.buffer.toString('hex') +
+    //logger.log("[signed input #" + i + "] redeemScript: " + redeemScript.buffer.toString('hex') +
     //        " hashForSignature: " + hashForSignature.toString('hex')) // + " sig: " + sig.toString('hex'))
     signatures.push({ key: key, sig: signature })
   }
@@ -1643,7 +1635,7 @@ CM.prototype.signaturesSubmit = function (state, signatures, tfa) {
   var account = state.account
   var txId = state.ptx.id
   var self = this
-  self.log("[CM signaturesSubmit] sigs: " + signatures + " txId: " + txId + " account: ", account)
+  logger.log("[CM signaturesSubmit] sigs: " + signatures + " txId: " + txId + " account: ", account)
   return this.rpc(C.ACCOUNT_SUBMIT_SIGNATURES, {
     pubId: account.pubId,
     data: txId,
@@ -1675,7 +1667,7 @@ CM.prototype.isAddressOfAccount = function (account, accountAddress) {
       const info = this.peekAccountInfo(account)
       addr = this.calcP2SH(account.coin, info, accountAddress.chain, accountAddress.hdindex)
   }
-  this.log("[isAddressesOfAccount] type: " + account.type + " accountAddress: " + accountAddress.address + " calcAddr: " + addr)
+  logger.log("[isAddressesOfAccount] type: " + account.type + " accountAddress: " + accountAddress.address + " calcAddr: " + addr)
   let decodedAa, decodedAddr
   try {
     decodedAa = this.decodeCoinAddress(account.coin, accountAddress.address)
@@ -1683,7 +1675,7 @@ CM.prototype.isAddressOfAccount = function (account, accountAddress) {
   } catch (err) {
     return false
   }
-  this.log("[isAddressesOfAccount] addr.version: " + decodedAddr.version + " decodedAa.version: " + decodedAa.version + " test: " + (decodedAddr.version == decodedAa.version))
+  logger.log("[isAddressesOfAccount] addr.version: " + decodedAddr.version + " decodedAa.version: " + decodedAa.version + " test: " + (decodedAddr.version == decodedAa.version))
   return decodedAddr.hash.equals(decodedAa.hash) && decodedAddr.version == decodedAa.version
 }
 
@@ -1719,12 +1711,12 @@ CM.prototype.analyzeTx = function (state, options) {
   let amountInOur = 0, amountInOther = 0, amountToRecipients = 0
   let amountToChange = 0, amountToUnknown = 0
   let error, i
-  //this.log("ANALYZE", ptx)
+  //logger.log("ANALYZE", ptx)
 
   // TODO: This code must be updated when the transaction contains unknown inputs, like in CoinJoin
   for (i = 0; i < tx.ins.length; i++) {
     var txInput = tx.ins[i]
-    this.log("INPUT #" + i + " " + txInput.hash.toString('hex') + "/" + txInput.index)
+    logger.log("INPUT #" + i + " " + txInput.hash.toString('hex') + "/" + txInput.index)
     for (j = 0; j < inputs.length; j++) {
       var preparedInput = inputs[j]
       var prepInputHash = Buffer.from(preparedInput.tx, 'hex').reverse()
@@ -1768,7 +1760,7 @@ CM.prototype.analyzeTx = function (state, options) {
         isChange = true
         break
       }
-      this.log("[Analyze] Output #" + i + " to: " + toAddr + " amount: " + output.value + " isChange: " + isChange)
+      logger.log("[Analyze] Output #" + i + " to: " + toAddr + " amount: " + output.value + " isChange: " + isChange)
     }
 
     if (!isChange) {
@@ -1807,7 +1799,7 @@ CM.prototype.analyzeTx = function (state, options) {
       if (!recipients[i].validated)
         error = "Missing recipient"
   const extimatedTxSize = this.estimateTxSizeFromAccountInfo(this.peekAccountInfo(account), tx)
-  this.log("coin: " + coin + " feeInfos", this.feeInfos)
+  logger.log("coin: " + coin + " feeInfos", this.feeInfos)
   const maxFeePerByte = (this.feeInfos && this.feeInfos[coin]) ?
     this.feeInfos[coin].maximumAcceptable :
     this.feeApi.getHardcodedMaxFeePerByte(coin).maximumAcceptable
@@ -1826,9 +1818,9 @@ CM.prototype.analyzeTx = function (state, options) {
       error = "Change address not validated"
   //    else if (amountToUnknown !== 0)
   //      error = "Destination address not validated"
-  this.log("[ANALYZE] amountInOur: " + amountInOur + " amountInOther: " + amountInOther + " amountToRecipients: "
+  logger.log("[ANALYZE] amountInOur: " + amountInOur + " amountInOther: " + amountInOther + " amountToRecipients: "
     + amountToRecipients + " amountToChange: " + amountToChange + " amountToUnknown: " + amountToUnknown)
-  this.log("[ANALYZE] fees: " + fees + " maxAcceptableFees: " + maximumAcceptableFee + " ptx.fees: " + ptx.fees
+  logger.log("[ANALYZE] fees: " + fees + " maxAcceptableFees: " + maximumAcceptableFee + " ptx.fees: " + ptx.fees
     + " extimatedTxSize: " + extimatedTxSize + " error: " + error + " maxFeePerByte: " + maxFeePerByte)
   return {
     validated: !error,
@@ -1944,7 +1936,7 @@ CM.prototype.payRecipients = function (account, recipients, options) {
       })
     } else {
       var ex = { ex: "clientValidationFailure", msg: "Self validation not passed", error: state.summary.error }
-      self.log(ex)
+      logger.log(ex)
       return Q.reject(ex)
     }
   })
@@ -1973,14 +1965,14 @@ CM.prototype.getUnspentsAtBlock = function (account, blockNum) {
 //
 
 CM.prototype.accountGetLimits = function (account) {
-  this.log("[CM accountGetLimits] account: ", account)
+  logger.log("[CM accountGetLimits] account: ", account)
   return this.rpc(C.ACCOUNT_LIMITS_GET, {
     pubId: account.pubId
   })
 }
 
 CM.prototype.accountSetLimit = function (account, limit, tfa) {
-  this.log("[CM accountSetLimit] limit: " + JSON.stringify(limit) + " account:", account)
+  logger.log("[CM accountSetLimit] limit: " + JSON.stringify(limit) + " account:", account)
   return this.rpc(C.ACCOUNT_LIMIT_SET, {
     pubId: account.pubId,
     type: limit.type, isHard: limit.isHard, amount: limit.amount,
@@ -1992,7 +1984,7 @@ CM.prototype.accountSetLimit = function (account, limit, tfa) {
 }
 
 CM.prototype.accountCancelLimitChange = function (account, limitType, tfa) {
-  this.log("[CM accountCancelLimitChange] " + limitType + " account:", account)
+  logger.log("[CM accountCancelLimitChange] " + limitType + " account:", account)
   return this.rpc(C.ACCOUNT_LIMIT_CANCEL_CHANGE, {
     pubId: account.pubId,
     type: limitType,
@@ -2016,7 +2008,7 @@ CM.prototype.tfaGetWalletConfig = function (account) {
 CM.prototype.tfaEnrollStart = function (params, tfa) {
   if (!params.name)
     throwBadParamEx('params', "Missing name")
-  this.log("[CM tfaEnrollStart] name: " + params.name + " value: " + params.value + " tfa: " + (tfa ? JSON.stringify(tfa) : "NONE"))
+  logger.log("[CM tfaEnrollStart] name: " + params.name + " value: " + params.value + " tfa: " + (tfa ? JSON.stringify(tfa) : "NONE"))
   return this.rpc(C.TFA_ENROLL_START, {
     name: params.name,
     value: params.value,
@@ -2090,7 +2082,7 @@ CM.prototype.tfaGetAccountConfig = function (account) {
 }
 
 CM.prototype.tfaSetAccountConfig = function (account, config, tfa) {
-  this.log("[CM tfaSetAccountConfig] config: " + JSON.stringify(config))
+  logger.log("[CM tfaSetAccountConfig] config: " + JSON.stringify(config))
   return this.rpc(C.TFA_SET_ACCOUNT_CONFIG, {
     pubId: account.pubId,
     data: config.policy,
@@ -2105,7 +2097,7 @@ CM.prototype.tfaSetAccountConfig = function (account, config, tfa) {
 //
 
 CM.prototype.abAdd = function (entry) {
-  this.log("[CM ab add] ", entry)
+  logger.log("[CM ab add] ", entry)
   return this.rpc(C.AB_ADD, {
     coin: entry.coin,
     type: entry.type,
@@ -2116,7 +2108,7 @@ CM.prototype.abAdd = function (entry) {
 }
 
 CM.prototype.abUpdate = function (entry) {
-  this.log("[CM ab update]", entry)
+  logger.log("[CM ab update]", entry)
   return this.rpc(C.AB_UPDATE, {
     id: entry.id,
     coin: entry.coin,
@@ -2128,7 +2120,7 @@ CM.prototype.abUpdate = function (entry) {
 }
 
 CM.prototype.abDelete = function (entry) {
-  this.log("[CM ab delete]", entry)
+  logger.log("[CM ab delete]", entry)
   return this.rpc(C.AB_DELETE, { id: entry.id })
 }
 
@@ -2336,7 +2328,7 @@ CM.prototype.recoveryPrepareMultiSigInputSig = function (index, accountInfo, uns
   const coin = accountInfo.coin
   //console.log("input #" + index + ": ", input)
   //console.log("unspent #" + index + ": ", unspent)
-  this.log("[recovery-prepareInputSig] coin: " + coin + " inputIndex: " + index + " unspent: " + unspent.aa.address + " chain: " + unspent.aa.chain + " hdindex: " + unspent.aa.hdindex + " redeemScr: " + unspent.aa.redeemScript)
+  logger.log("[recovery-prepareInputSig] coin: " + coin + " inputIndex: " + index + " unspent: " + unspent.aa.address + " chain: " + unspent.aa.chain + " hdindex: " + unspent.aa.hdindex + " redeemScr: " + unspent.aa.redeemScript)
   //console.log("#" + index + " srvPubKey: " + serverSigData.pubKey)
   var scriptParams = accountInfo.scriptParams
   if (!scriptParams)
@@ -2345,14 +2337,14 @@ CM.prototype.recoveryPrepareMultiSigInputSig = function (index, accountInfo, uns
   if (scriptParams.mandatoryKeys && scriptParams.mandatoryKeys.length > 0)
     mandatoryPubKeys = this.derivePubKeys(coin, scriptParams.mandatoryKeys, unspent.aa.chain, unspent.aa.hdindex)
   var otherPubKeys = this.derivePubKeys(coin, scriptParams.otherKeys ? scriptParams.otherKeys : [], unspent.aa.chain, unspent.aa.hdindex)
-  this.log("accountsSigData: ", accountsSigData)
-  this.log("derived mandatory PubKeys: ", mandatoryPubKeys)
-  this.log("derived other PubKeys: ", otherPubKeys)
+  logger.log("accountsSigData: ", accountsSigData)
+  logger.log("derived mandatory PubKeys: ", mandatoryPubKeys)
+  logger.log("derived other PubKeys: ", otherPubKeys)
 
   // Let's associate signatures to pubKeys
   var self = this, mandatorySigs = [], otherSigs = []
   accountsSigData.forEach(function (sigData) {
-    self.log("SigData pubKey: " + sigData.pubKey)
+    logger.log("SigData pubKey: " + sigData.pubKey)
     var found = mandatoryPubKeys.find(function (pubKey) {
       return sigData.pubKey === pubKey
     })
@@ -2368,7 +2360,7 @@ CM.prototype.recoveryPrepareMultiSigInputSig = function (index, accountInfo, uns
         throw new MelisError('CmBadParamException', "Unable to find pubKey in account recovery data: " + sigData.pubKey)
     }
   })
-  self.log("#mandatorySigs: " + mandatorySigs.length + " #otherSigs: " + otherSigs.length + " mandatoryServer: " + accountInfo.serverMandatory)
+  logger.log("#mandatorySigs: " + mandatorySigs.length + " #otherSigs: " + otherSigs.length + " mandatoryServer: " + accountInfo.serverMandatory)
   if (mandatorySigs.length !== mandatoryPubKeys.length)
     throw new MelisError('CmBadParamException', 'Wrong mandatory signatures -- found: ' + mandatorySigs.length + " needed: " + mandatoryPubKeys.length)
   if (otherSigs.length !== (accountInfo.minSignatures + (accountInfo.serverMandatory ? 1 : 0) - mandatorySigs.length))
@@ -2388,10 +2380,10 @@ CM.prototype.recoveryPrepareMultiSigInputSig = function (index, accountInfo, uns
     script += ' ' + scriptSignature.toString('hex')
   })
 
-  self.log("scriptPubKey: " + script)
+  logger.log("scriptPubKey: " + script)
   var scriptSig = bscript.fromASM(script)
   var bufferRedeemScript = Buffer.from(unspent.aa.redeemScript, 'hex')
-  self.log("redeemScript: " + bscript.toASM(bufferRedeemScript))
+  logger.log("redeemScript: " + bscript.toASM(bufferRedeemScript))
 
   var p2shScript = bscript.scriptHash.input.encode(scriptSig, bufferRedeemScript)
   return p2shScript
@@ -2404,8 +2396,8 @@ CM.prototype.recoveryPrepareSimpleTx = function (params) {
   const unspents = params.unspents
   const fees = params.fees
   const destinationAddress = params.destinationAddress
-  this.log("[recoveryPrepareSimpleTx] accountinfo: ", accountInfo)
-  this.log("[recoveryPrepareSimpleTx] unspents: ", unspents)
+  logger.log("[recoveryPrepareSimpleTx] accountinfo: ", accountInfo)
+  logger.log("[recoveryPrepareSimpleTx] unspents: ", unspents)
 
   const coin = accountInfo.coin
   const bscript = Bitcoin.script
@@ -2419,7 +2411,7 @@ CM.prototype.recoveryPrepareSimpleTx = function (params) {
   if (inputAmount === 0)
     throw new MelisError("Unexpected: input amount is zero")
   const outputSig = this.toOutputScript(coin, destinationAddress)
-  this.log("[rebuildSingleTx] inputAmount:" + inputAmount + " fees: " + fees + " outputSig: " + outputSig.toString('hex') + " destAddress: " + destinationAddress)
+  logger.log("[rebuildSingleTx] inputAmount:" + inputAmount + " fees: " + fees + " outputSig: " + outputSig.toString('hex') + " destAddress: " + destinationAddress)
   tx.addOutput(outputSig, inputAmount - fees)
 
   const accountHd = self.deriveAccountHdKey(self.hdNodeFromHexSeed(seed), accountInfo.accountNum, coin)
@@ -2446,8 +2438,8 @@ CM.prototype.recoveryPrepareMultiSigTx = function (accountInfo, tx, unspents, se
   const self = this
   const coin = accountInfo.coin
   const cosigners = accountInfo.cosigners
-  this.log("[recoveryPrepareMultiSigTx] coin: " + coin + " unspents: ", unspents)
-  this.log("[recoveryPrepareMultiSigTx] server signature data: ", serverSignaturesData)
+  logger.log("[recoveryPrepareMultiSigTx] coin: " + coin + " unspents: ", unspents)
+  logger.log("[recoveryPrepareMultiSigTx] server signature data: ", serverSignaturesData)
 
   if (accountInfo.minSignatures !== seeds.length)
     throw new MelisError('CmBadParamException', '#minSignatures != #seeds')
@@ -2508,7 +2500,7 @@ CM.prototype.recoveryPrepareMultiSigTx = function (accountInfo, tx, unspents, se
     }
     for (var i = 0; i < tx.ins.length; i++) {
       const inputScript = self.recoveryPrepareMultiSigInputSig(i, accountInfo, unspents[i], allSignatures[i])
-      //self.log("#" + i + " inputSig: " + Bitcoin.script.toASM(inputSig))
+      //logger.log("#" + i + " inputSig: " + Bitcoin.script.toASM(inputSig))
       tx.setInputScript(i, inputScript)
     }
     return tx
