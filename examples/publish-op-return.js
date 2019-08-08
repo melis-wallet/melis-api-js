@@ -1,4 +1,3 @@
-const process = require('process')
 const MELIS = require('../src/cm')
 const C = MELIS.C
 const melis = new MELIS({
@@ -50,7 +49,8 @@ async function connectAndSelectAccount() {
     account = res.account
   }
 
-  console.log("Using account with pubId: " + account.pubId + " (#" + account.num + ")")
+  const b58 = melis.exportAccountMasterKeyToBase58(account)
+  console.log("Account masterKey: "+b58+" pubId: " + account.pubId)
   const balance = melis.peekAccountBalance(account)
   console.log("Confirmed funds (satoshis):" + balance.amAvailable + " unconfirmed: " + balance.amUnconfirmed)
 
