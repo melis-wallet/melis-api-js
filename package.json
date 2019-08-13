@@ -3,7 +3,7 @@
   "description": "Melis Javascript API bindings",
   "author": "Alessandro Polverini <a.polverini@melis.io>",
   "license": "ISC",
-  "version": "0.12.4",
+  "version": "0.13.0",
   "main": "src/index.js",
   "keywords": [
     "melis",
