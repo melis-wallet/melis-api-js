@@ -35,6 +35,8 @@ const CASH_BECH32_WITHOUT_PREFIX_UPPERCASE = new RegExp("^[" + C.BECH32_CHARSET.
 
 const SIGHASH_BITCOINCASHBIP143 = 0x40
 
+// https://github.com/cryptocoinjs/coininfo/tree/master/lib/coins
+
 const litecoinTestnet = {
   messagePrefix: '\x19Litecoin Signed Message:\n',
   bip32: {
