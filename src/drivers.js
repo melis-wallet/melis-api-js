@@ -16,15 +16,17 @@ const MelisErrorModule = require("./melis-error")
 const MelisError = MelisErrorModule.MelisError
 const throwUnexpectedEx = MelisErrorModule.throwUnexpectedEx
 
-// const Logger = require("./logger")
-// const logger = new Logger()
 const logger = require("./logger")
 
 const PREFIX_MAINNET = "bitcoincash"
 const PREFIX_TESTNET = "bchtest"
 const PREFIX_REGTEST = "bchreg"
+const PREFIX_SLPMAIN = "simpleledger"
+const PREFIX_SLPTEST = "slptest"
 
 const CASH_BECH32_REGEX = new RegExp("^(("
+  + PREFIX_SLPMAIN + ")|(" + PREFIX_SLPMAIN.toUpperCase() + ")|("
+  + PREFIX_SLPTEST + ")|(" + PREFIX_SLPTEST.toUpperCase() + ")|("
   + PREFIX_MAINNET + ")|(" + PREFIX_MAINNET.toUpperCase() + ")|("
   + PREFIX_TESTNET + ")|(" + PREFIX_TESTNET.toUpperCase() + ")|("
   + PREFIX_REGTEST + ")|(" + PREFIX_REGTEST.toUpperCase() + ")"
@@ -163,7 +165,9 @@ function decodeBitcoinCashAddress(address, self) {
     decoded = cashaddr.decode(expectedPrefix.toUpperCase() + ":" + address)
 
   if (decoded)
-    if (decoded.prefix === expectedPrefix)
+    if (decoded.prefix === expectedPrefix ||
+       (decoded.prefix === PREFIX_SLPTEST && (expectedPrefix == PREFIX_TESTNET || expectedPrefix === PREFIX_REGTEST)) ||
+       (decoded.prefix === PREFIX_SLPMAIN && (expectedPrefix == PREFIX_MAINNET)))
       return Object.assign(decoded, {
         version: decoded.type === "P2SH" ? self.network.scriptHash : self.network.pubKeyHash,
         hash: Buffer.from(decoded.hash)
@@ -264,65 +268,38 @@ function toScriptSignatureCash(signature, hashFlags) {
   return Buffer.concat([signature.toDER(), hashTypeBuffer])
 }
 
-function convertBech32CashAddressToLegacy(address, self) {
-  if (C.LEGACY_BITCOIN_REGEX.test(address))
-    return address
-
-  if (CASH_BECH32_REGEX.test(address)) {
-    // Good as it is
-  } else if (CASH_BECH32_WITHOUT_PREFIX_LOWERCASE.test(address)) {
-    address = self.addressPrefix + ":" + address
-  } else if (CASH_BECH32_WITHOUT_PREFIX_UPPERCASE.test(address)) {
-    address = self.addressPrefix.toUpperCase() + ":" + address
-  } else {
-    throw new MelisError("CmInvalidAddressException", "Unknown address format: " + address)
-  }
-
-  let decoded
-  try {
-    decoded = cashaddr.decode(address)
-  } catch (ex) {
-    throw new MelisError("CmInvalidAddressException", "Unknown address format: " + address)
-  }
-
-  if (decoded.prefix !== self.addressPrefix)
-    throw new MelisError("CmInvalidAddressException", "Invalid prefix in address -- expected: " + self.addressPrefix + " got: " + decoded.prefix)
-
-  if (decoded.type === 'P2PKH')
-    return Bitcoin.address.toBase58Check(Buffer.from(decoded.hash), self.network.pubKeyHash)
-  else if (decoded.type === 'P2SH')
-    return Bitcoin.address.toBase58Check(Buffer.from(decoded.hash), self.network.scriptHash)
-  else
-    throw new MelisError("CmInvalidAddressException", "Unknown Bitcoin Cash type: " + decoded.type)
-
+function toLegacyAddress(address, self) {
+  const {version, hash} = decodeBitcoinCashAddress(address, self)
+  return Bitcoin.address.toBase58Check(Buffer.from(hash), version)
 }
 
-function convertLegacyAddressToBech32Cash(address, self) {
-  if (!C.LEGACY_BITCOIN_REGEX.test(address))
-    throw new MelisError("CmInvalidAddressException", "Invalid Bitcoin Cash legacy address: " + address)
-
-  let decoded
-  try {
-    decoded = Bitcoin.address.fromBase58Check(address, self.network)
-  } catch (e) { }
-
-  if (!decoded)
-    throw new MelisError("CmInvalidAddressException", "Unable to decode Bitcoin Cash legacy address: " + address)
-
+function toCashAddress(address, self) {
+  const {version, hash} = decodeBitcoinCashAddress(address, self)
   let type
-  if (decoded.version === self.network.pubKeyHash)
+  if (version === self.network.pubKeyHash)
     type = 'P2PKH'
-  else if (decoded.version === self.network.scriptHash)
+  else if (version === self.network.scriptHash)
     type = 'P2SH'
   else
-    throw new MelisError("CmInvalidAddressException", "Unexpected version: " + decoded.version + " decoding Bitcoin Cash legacy address: " + address)
+    throw new MelisError("CmInvalidAddressException", "Unexpected version: " + version + " decoding Bitcoin Cash address: " + address)
+  return cashaddr.encode(self.addressPrefix, type, hash)
+}
 
-  return cashaddr.encode(self.addressPrefix, type, decoded.hash)
+function toSlpAddress(address, self) {
+  const {version, hash} = decodeBitcoinCashAddress(address, self)
+  let type
+  if (version === self.network.pubKeyHash)
+    type = 'P2PKH'
+  else if (version === self.network.scriptHash)
+    type = 'P2SH'
+  else
+    throw new MelisError("CmInvalidAddressException", "Unexpected version: " + version + " decoding Bitcoin Cash address: " + address)
+  return cashaddr.encode(self.slpAddressPrefix, type, hash)
 }
 
 function toOutputScriptCash(address) {
   if (!C.LEGACY_BITCOIN_REGEX.test(address))
-    address = convertBech32CashAddressToLegacy(address, this)
+    address = toLegacyAddress(address, this)
   return Bitcoin.address.toOutputScript(address, this.network)
 }
 
@@ -657,16 +634,17 @@ const BCH_COMMON = {
   toOutputScript: toOutputScriptCash,
   hashForSignature: hashForSignatureCash,
   decodeCoinAddress: function (address) { return decodeBitcoinCashAddress(address, this) },
-  toLegacyAddress: function (address) { return convertBech32CashAddressToLegacy(address, this) },
-  toCashAddress: function (address) { return convertLegacyAddressToBech32Cash(address, this) }
+  toLegacyAddress: function (address) { return toLegacyAddress(address, this) },
+  toCashAddress: function (address) { return toCashAddress(address, this) },
+  toSlpAddress: function (address) { return toSlpAddress(address, this) },
 }
 
 const BTC = Object.assign({ network: NETWORKS.bitcoin }, BTC_COMMON, COMMON_METHODS)
 const TBTC = Object.assign({}, BTC, { network: NETWORKS.testnet })
 const RBTC = Object.assign({}, TBTC)
 
-const BCH = Object.assign({ network: NETWORKS.bitcoin, addressPrefix: PREFIX_MAINNET }, COMMON_METHODS, BCH_COMMON)
-const TBCH = Object.assign({}, BCH, { network: NETWORKS.testnet, addressPrefix: PREFIX_TESTNET })
+const BCH = Object.assign({ network: NETWORKS.bitcoin, addressPrefix: PREFIX_MAINNET, slpAddressPrefix: PREFIX_SLPMAIN }, COMMON_METHODS, BCH_COMMON)
+const TBCH = Object.assign({}, BCH, { network: NETWORKS.testnet, addressPrefix: PREFIX_TESTNET, slpAddressPrefix: PREFIX_SLPTEST })
 const RBCH = Object.assign({}, TBCH, { addressPrefix: PREFIX_REGTEST })
 
 const LTC = Object.assign({ network: NETWORKS.litecoin }, BTC_COMMON, COMMON_METHODS)

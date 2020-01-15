@@ -54,10 +54,11 @@ function updateWalletInfo(target, info) {
   target.walletData.info = info
 }
 
-function updateAccount(target, account, balance, info, hdWallet) {
+function updateAccount(target, accountData, hdWallet) {
+  const account = accountData.account
   target.walletData.accounts[account.pubId] = account
-  target.walletData.balances[account.pubId] = balance
-  target.walletData.infos[account.pubId] = info
+  target.walletData.balances[account.pubId] = accountData.balance
+  target.walletData.infos[account.pubId] = accountData.accountInfo
   if (hdWallet)
     target.walletData.keys[account.num] = target.deriveAccountHdKey(hdWallet, account.num, account.coin)
 }
@@ -1119,10 +1120,14 @@ CM.prototype.accountOpen = function (extendedKey, params) {
       usePinAsTfa: params.usePinAsTfa
     }).then(res => {
       const wallet = res.wallet
+      const accountData = res.accountData
       logger.log("[CM] accountOpen isProdNet: " + self.isProdNet+" wallet: ", wallet)
+      wallet.accounts = [accountData.account]
+      wallet.balances = [accountData.balance]
+      wallet.accountInfos = [accountData.accountInfo]
       walletOpen(self, accountHd, wallet, true)
       self.lastOpenParams = { accountExtendedKey: extendedKey, sessionName: params.sessionName, deviceId: params.deviceId }
-      return wallet
+      return res
     })
   })
 }
@@ -1261,7 +1266,7 @@ CM.prototype.accountCreate = function (params) {
     params.xpub = self.hdNodeToBase58Xpub(accountHd, params.coin)
     return self.rpc(C.ACCOUNT_REGISTER, params)
   }).then(res => {
-    updateAccount(self, res.account, res.balance, res.accountInfo, self.hdWallet)
+    updateAccount(self, res, self.hdWallet)
     return res
   })
 }
@@ -1291,7 +1296,7 @@ CM.prototype.accountJoin = function (params) {
       meta: params.meta
     })
   }).then(res => {
-    updateAccount(self, res.account, res.balance, res.accountInfo, self.hdWallet)
+    updateAccount(self, res, self.hdWallet)
     return res
   })
 }
@@ -1302,7 +1307,7 @@ CM.prototype.accountRefresh = function (account) {
     pubId: account.pubId
   }).then(res => {
     if (res.account && res.balance && res.accountInfo)
-      updateAccount(self, res.account, res.balance, res.accountInfo)
+      updateAccount(self, res)
     return res
   })
 }
@@ -1319,7 +1324,7 @@ CM.prototype.accountUpdate = function (account, options) {
     tfa: options.tfa,
     pubMeta: options.pubMeta
   }).then(res => {
-    updateAccount(self, res.account, res.balance, res.accountInfo)
+    updateAccount(self, res)
     return res
   })
 }
@@ -1694,6 +1699,33 @@ CM.prototype.ensureAccountInfo = function (account) {
     return Q(account)
 }
 
+const SLP_PREFIX = Buffer.from("6a04534c50000101",'hex')  // OP_RETURN SLP\0 01
+const SLP_ACTION_GENESIS = Buffer.from("0747454e45534953",'hex')  // GENESIS
+const SLP_ACTION_MINT = Buffer.from("044d494e54",'hex')  // MINT
+const SLP_ACTION_SEND = Buffer.from("0453454e44",'hex')  // SEND
+const SLP_ACTIONS = [SLP_ACTION_SEND, SLP_ACTION_GENESIS, SLP_ACTION_MINT]
+function isSlp(tx) {
+  if (tx.outs.length < 2)
+   return false
+  let script = tx.outs[0].script
+  if (SLP_PREFIX.compare(script.slice(0,SLP_PREFIX.length)) !== 0)
+    return false;
+  script = script.slice(SLP_PREFIX.length)
+  return SLP_ACTIONS.some(action => action.compare(script.slice(0,action.length)) == 0)
+}
+  //const SLP_SEND_PREFIX = Buffer.from("6a04534c500001010453454e44",'hex')
+  //return SLP_SEND_PREFIX.compare(out.script.slice(0,SLP_SEND_PREFIX.length)) == 0
+  // const script = Bitcoin.script.decompile(out.script)
+  // console.log("REMOVEME RAW SCRIPT", out.script)
+  // console.log("REMOVEME DECOMPILED SCRIPT", script)
+  // console.log("S[0]: "+script[0]+" s[1]: "+script[1]+" s[2]: "+script[2])
+  // if (script.length <= 4)
+  //   return false
+  // return (script[0] == 106 && script[1].compare(SLP_PREFIX) && script[3].compare(SLP_ACTION_SEND))
+  // //   return false
+  // // const part = script[1]
+  // // return SLP_SEND_PREFIX.compare(part.slice(0,SLP_SEND_PREFIX.length)) == 0
+
 CM.prototype.analyzeTx = function (state, options) {
   if (options && options.skipAnalyze)
     return null
@@ -1799,7 +1831,7 @@ CM.prototype.analyzeTx = function (state, options) {
       if (!recipients[i].validated)
         error = "Missing recipient"
   const extimatedTxSize = this.estimateTxSizeFromAccountInfo(this.peekAccountInfo(account), tx)
-  logger.log("coin: " + coin + " feeInfos", this.feeInfos)
+  logger.log("coin: " + coin +" feeInfos", this.feeInfos)
   const maxFeePerByte = (this.feeInfos && this.feeInfos[coin]) ?
     this.feeInfos[coin].maximumAcceptable :
     this.feeApi.getHardcodedMaxFeePerByte(coin).maximumAcceptable
@@ -1810,7 +1842,7 @@ CM.prototype.analyzeTx = function (state, options) {
       error = "Fees too high"
     else if (fees !== ptx.fees)
       error = "Calculated fees does not match server info"
-    else if (amountToRecipients + amountToUnknown > 0 && fees > amountToRecipients + amountToUnknown)
+    else if (!isSlp(tx) && (amountToRecipients + amountToUnknown > 0) && (fees > amountToRecipients + amountToUnknown))
       //  else if (fees > amountToChange &&
       //          (fees > (amountToRecipients + amountToUnknown) || (amountToRecipients === 0 && amountToUnknown === 0)))
       error = "Fees (" + fees + ") would be greater than total outputs of transaction (" + amountToRecipients + "/" + amountToUnknown + "/" + amountToChange + ")"
@@ -1818,7 +1850,7 @@ CM.prototype.analyzeTx = function (state, options) {
       error = "Change address not validated"
   //    else if (amountToUnknown !== 0)
   //      error = "Destination address not validated"
-  logger.log("[ANALYZE] amountInOur: " + amountInOur + " amountInOther: " + amountInOther + " amountToRecipients: "
+  logger.log("[ANALYZE] isSlp: "+isSlp(tx)+" amountInOur: " + amountInOur + " amountInOther: " + amountInOther + " amountToRecipients: "
     + amountToRecipients + " amountToChange: " + amountToChange + " amountToUnknown: " + amountToUnknown)
   logger.log("[ANALYZE] fees: " + fees + " maxAcceptableFees: " + maximumAcceptableFee + " ptx.fees: " + ptx.fees
     + " extimatedTxSize: " + extimatedTxSize + " error: " + error + " maxFeePerByte: " + maxFeePerByte)
@@ -1855,10 +1887,12 @@ CM.prototype.payPrepare = function (account, recipients, options) {
       return failPromiseWithEx(buildInvalidAddressEx(recipient.address, "Invalid address: " + recipient.address))
     if (!recipient.address && !recipient.pubId && !recipient.payloadBase64)
       return failPromiseWithBadParam("recipient", "Missing address, pubId or payload in recipient")
-    const v = parseInt(recipient.amount)
-    if (v === undefined || v === null || v < 0)
-      return failPromiseWithBadParam("amount", "Invalid amount: " + v)
-    recipient.amount = v
+    if (recipient.amount !== undefined && recipient.amount !== null)
+      recipient.amount = parseInt(recipient.amount)
+    // const v = parseInt(recipient.amount)
+    // if (v === undefined || v === null || v < 0)
+    //   return failPromiseWithBadParam("amount", "Invalid amount: " + v)
+    // recipient.amount = v
   }
   const state = { account: account, recipients: recipients }
   return this.ensureAccountInfo(account).then(function (account) {
@@ -2213,6 +2247,42 @@ CM.prototype.submitForkClaim = function (id, signatures) {
   return this.rpc(C.SUBMIT_FORK_CLAIM, {
     id, signatures
   })
+}
+
+CM.prototype.slpPrepareGenesisPtx = async function (account, genesisData, options) {
+  genesisData.pubId = account.pubId
+  if (options)
+    genesisData.ptxOptions = options
+  const state = { account: account }
+  account = await this.ensureAccountInfo(account)
+  state.account = account
+  let res = await this.rpc(C.SLP_CREATE_GENESIS, genesisData)
+  state.ptx = res.ptx
+  await this.updateNetworkFees(account.coin)
+  state.summary = this.analyzeTx(state, options)
+  if (options && options.autoSignIfValidated && state.summary.validated) {
+    res = await this.ptxSignFields(state.account, state.ptx)
+    state.ptx = res.ptx
+  }
+  return state
+}
+
+CM.prototype.slpPrepareMintPtx = async function (account, mintData, options) {
+  mintData.pubId = account.pubId
+  if (options)
+    mintData.ptxOptions = options
+  const state = { account: account }
+  account = await this.ensureAccountInfo(account)
+  state.account = account
+  let res = await this.rpc(C.SLP_CREATE_MINT, mintData)
+  state.ptx = res.ptx
+  await this.updateNetworkFees(account.coin)
+  state.summary = this.analyzeTx(state, options)
+  if (options && options.autoSignIfValidated && state.summary.validated) {
+    res = await this.ptxSignFields(state.account, state.ptx)
+    state.ptx = res.ptx
+  }
+  return state
 }
 
 //

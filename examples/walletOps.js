@@ -1,6 +1,6 @@
 const Q = require('q')
 const process = require('process')
-var argv = require('minimist')(process.argv.slice(2));
+const argv = require('minimist')(process.argv.slice(2));
 
 const Melis = require('../src/cm')
 const C = Melis.C
@@ -36,28 +36,29 @@ function requireParams(...params) {
   })
 }
 
-if (!availCmds.has(cmd))
-  usage("Invalid command: " + cmd)
-
 let doCreate = false
 switch (cmd) {
   case 'create':
     doCreate = true
     if (!seed)
       seed = melis.random32HexBytes()
-    break;
+    break
+  case 'exportAccountKey':
+    requireParams('account')
   case 'showAccounts':
     requireParams("seed");
-    break;
+    break
   case 'showAddresses':
-    requireParams("seed", "account");
-    break;
+    requireParams("seed", "account")
+    break
   case 'newAddress':
-    requireParams("seed", "account");
-    break;
+    requireParams("seed", "account")
+    break
   case 'pay':
-    requireParams("seed", "account", "address", "amount");
-    break;
+    requireParams("seed", "account", "address", "amount")
+    break
+  default:
+    usage("Invalid command: " + cmd)
 }
 
 console.log((doCreate ? "Creating wallet" : "Opening wallet") + " using seed: " + seed)
@@ -91,7 +92,7 @@ async function showAddresses(pubId) {
   })
 }
 
-function pay(pubId, address, amount, options) {
+async function pay(pubId, address, amount, options) {
   const account = getAccountFromPubId(pubId)
   return melis.payRecipients(account,
     [{ address, amount, isRemainder: (amount === 0) }], options).then(res => {
@@ -101,11 +102,17 @@ function pay(pubId, address, amount, options) {
     })
 }
 
-function newAddress(pubId) {
+async function newAddress(pubId) {
   const account = getAccountFromPubId(pubId)
   return melis.getUnusedAddress(account).then(res => {
     console.log("New address: ", res)
   })
+}
+
+function exportAccountKey(pubId) {
+  const account = getAccountFromPubId(pubId)
+  const b58 = melis.exportAccountMasterKeyToBase58(account)
+  console.log('Master account key for '+pubId+": "+b58)
 }
 
 melis.connect().then(config => {
@@ -125,6 +132,8 @@ melis.connect().then(config => {
       if (!seed)
         seed = melis.random32HexBytes()
       break;
+    case 'exportAccountKey':
+      return Q(exportAccountKey(pubId))
     case 'showAccounts':
       return Q(showAccounts(wallet))
     case 'showAddresses':

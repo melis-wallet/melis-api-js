@@ -24,11 +24,11 @@ function doExit(msg) {
 async function connectAndLoginWithAccount(coin, masterAccountKey) {
   const config = await melis.connect()
   console.log("Connected to server. ")
-  const wallet = await melis.accountOpen(masterAccountKey, {
+  const res = await melis.accountOpen(masterAccountKey, {
     coin
   })
-  console.log("Single account logged in: ", wallet)
-  return wallet.accounts[Object.keys(wallet.accounts)[0]]
+  console.log("Single account logged in: ", res)
+  return res.accountData.account
 }
 
 (async () => {
