@@ -2285,6 +2285,14 @@ CM.prototype.slpPrepareMintPtx = async function (account, mintData, options) {
   return state
 }
 
+CM.prototype.slpGetTokenInfoByTicker = async function (ticker) {
+  return await this.rpc(C.C.SLP_GET_TOKEN_INFO_BY_TICKER+"/"+ticker)
+}
+
+CM.prototype.slpGetTokenInfoByTokenId = async function (tokenId) {
+  return await this.rpc(C.C.SLP_GET_TOKEN_INFO_BY_TOKENID+"/"+tokenId)
+}
+
 //
 // Non-promise returning methods
 //
