@@ -1501,8 +1501,8 @@ CM.prototype.ptxGetById = function (id) {
   return this.rpc(C.ACCOUNT_PTX_GET, { data: id })
 }
 
-CM.prototype.ptxGetByHash = function (hash) {
-  return this.rpc(C.ACCOUNT_PTX_GET, { hash: hash })
+CM.prototype.ptxGetByHash = function (account, hash) {
+  return this.rpc(C.ACCOUNT_PTX_GET, { pubId: account.pubId, hash: hash })
 }
 
 CM.prototype.ptxCancel = function (ptx) {
@@ -2286,11 +2286,15 @@ CM.prototype.slpPrepareMintPtx = async function (account, mintData, options) {
 }
 
 CM.prototype.slpGetTokenInfoByTicker = async function (ticker) {
-  return await this.rpc(C.C.SLP_GET_TOKEN_INFO_BY_TICKER+"/"+ticker)
+  return await this.rpc(C.SLP_GET_TOKEN_INFO_BY_TICKER+"/"+ticker)
 }
 
 CM.prototype.slpGetTokenInfoByTokenId = async function (tokenId) {
-  return await this.rpc(C.C.SLP_GET_TOKEN_INFO_BY_TOKENID+"/"+tokenId)
+  return await this.rpc(C.SLP_GET_TOKEN_INFO_BY_TOKENID+"/"+tokenId)
+}
+
+CM.prototype.slpGetTokenInfos = async function () {
+  return await this.rpc(C.SLP_GET_TOKEN_INFOS)
 }
 
 //
