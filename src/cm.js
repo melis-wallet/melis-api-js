@@ -2297,6 +2297,20 @@ CM.prototype.slpGetTokenInfos = async function () {
   return await this.rpc(C.SLP_GET_TOKEN_INFOS)
 }
 
+CM.prototype.slpTxInfoGet = async function (id) {
+  const res = await this.rpc(C.SLP_GET_TX_INFO, { data: id  })
+  return res.slpTxInfo
+}
+
+CM.prototype.slpTxInfoSet = async function (id, labels, meta) {
+  const res = await this.rpc(C.SLP_SET_TX_INFO, {
+    data: id,
+    labels: labels,
+    meta: meta
+  })
+  return res.slpTxInfo
+}
+
 //
 // Non-promise returning methods
 //
