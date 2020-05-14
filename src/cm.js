@@ -1027,8 +1027,8 @@ CM.prototype.devicePromoteToPrimary = function (deviceId, tfa) {
   })
 }
 
-CM.prototype.deviceCancelPromotion = function () {
-  return this.rpc(C.WALLET_DEVICE_CANCEL_PROMOTION)
+CM.prototype.deviceCancelPromotion = function (tfa) {
+  return this.rpc(C.WALLET_DEVICE_CANCEL_PROMOTION, {tfa})
 }
 
 CM.prototype.deviceGetRecoveryHours = function () {
