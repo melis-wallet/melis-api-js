@@ -27,9 +27,9 @@
     "q": "1.x",
     "randombytes": "^2.1.0",
     "sjcl-all": "^1.0.1",
-    "sockjs-client": "^1.4.0",
+    "sockjs-client": "^1.5.0",
     "webstomp-client": "^1.2.6",
-    "ws": "^7.2.1"
+    "ws": "^7.3.1"
   },
   "optionalDependencies": {
     "bufferutil": "^4.0.1",
