@@ -20,7 +20,7 @@ const throwUnexpectedEx = MelisErrorModule.throwUnexpectedEx
 function walletOpen(target, hd, serverWalletData, isSingleAccount) {
   if (!hd || !serverWalletData)
     throwUnexpectedEx("No data opening wallet")
-  const accounts = {},  balances = {}, infos = {}, keys = {}
+  const accounts = {}, balances = {}, infos = {}, keys = {}
   serverWalletData.accounts.forEach((a, i) => {
     accounts[a.pubId] = a
     balances[a.pubId] = serverWalletData.balances[i]
@@ -285,9 +285,9 @@ CM.prototype.setLogger = function (f) {
     logger.setLogObject(f)
   else
     logger.setLogObject({
-      log: (a, b) => {},
-      logWarning: (a, b) => {},
-      logError: (a, b) => {}
+      log: (a, b) => { },
+      logWarning: (a, b) => { },
+      logError: (a, b) => { }
     })
 }
 
@@ -797,13 +797,14 @@ CM.prototype.connect_internal = function (stompEndpoint, config) {
       }
       if (self.lastOpenParams) {
         if (self.lastOpenParams.accountExtendedKey) {
-        self.accountOpen(self.lastOpenParams.accountExtendedKey, self.lastOpenParams).then(wallet => {
-          emitEvent(self, C.EVENT_SESSION_RESTORED, wallet)
-        })} else if (self.lastOpenParams.seed) {
+          self.accountOpen(self.lastOpenParams.accountExtendedKey, self.lastOpenParams).then(wallet => {
+            emitEvent(self, C.EVENT_SESSION_RESTORED, wallet)
+          })
+        } else if (self.lastOpenParams.seed) {
           self.walletOpen(self.lastOpenParams.seed, self.lastOpenParams).then(wallet => {
             emitEvent(self, C.EVENT_SESSION_RESTORED, wallet)
           })
-        } 
+        }
       }
       if (self.cmConfiguration.maxKeepAliveSeconds && self.cmConfiguration.maxKeepAliveSeconds < self.maxKeepAliveSeconds)
         self.maxKeepAliveSeconds = self.cmConfiguration.maxKeepAliveSeconds
@@ -1028,7 +1029,7 @@ CM.prototype.devicePromoteToPrimary = function (deviceId, tfa) {
 }
 
 CM.prototype.deviceCancelPromotion = function (tfa) {
-  return this.rpc(C.WALLET_DEVICE_CANCEL_PROMOTION, {tfa})
+  return this.rpc(C.WALLET_DEVICE_CANCEL_PROMOTION, { tfa })
 }
 
 CM.prototype.deviceGetRecoveryHours = function () {
@@ -1065,6 +1066,10 @@ CM.prototype.devicesDeleteAll = function (deviceId) {
 // WALLET functions
 //
 
+CM.prototype.walletLogin = function (seed, params) {
+  throw ('todo')
+}
+
 CM.prototype.walletOpen = function (seed, params) {
   const self = this
   if (!params)
@@ -1074,7 +1079,7 @@ CM.prototype.walletOpen = function (seed, params) {
     const hd = self.hdNodeFromHexSeed(seed)
     // Keep the public key for ourselves
     const loginId = self.deriveKeyFromPath(hd, self.getLoginPath())
-    const chainCode = Buffer.alloc(32,"42", 'hex')
+    const chainCode = Buffer.alloc(32, "42", 'hex')
     const loginHD = new Bitcoin.HDNode(loginId.keyPair, chainCode)
     const loginPath = [simpleRandomInt(C.MAX_SUBPATH), simpleRandomInt(C.MAX_SUBPATH)]
     const loginKey = self.deriveKeyFromPath(loginHD, loginPath)
@@ -1121,7 +1126,7 @@ CM.prototype.accountOpen = function (extendedKey, params) {
     }).then(res => {
       const wallet = res.wallet
       const accountData = res.accountData
-      logger.log("[CM] accountOpen isProdNet: " + self.isProdNet+" wallet: ", wallet)
+      logger.log("[CM] accountOpen isProdNet: " + self.isProdNet + " wallet: ", wallet)
       wallet.accounts = [accountData.account]
       wallet.balances = [accountData.balance]
       wallet.accountInfos = [accountData.accountInfo]
@@ -1169,6 +1174,11 @@ CM.prototype.walletClose = function () {
   })
 }
 
+CM.prototype.accountsGet = function (pagingInfo) {
+  const pars = addPagingInfo({}, pagingInfo)
+  return this.simpleRpcSlice(C.WALLET_ACCOUNTS_GET, pars)
+}
+
 CM.prototype.walletGetNumSessions = function () {
   return this.rpc(C.WALLET_GET_NUM_SESSIONS).then(function (res) {
     //console.log("[CM] number of sessions with wallet open: " + JSON.stringify(res))
@@ -1177,8 +1187,16 @@ CM.prototype.walletGetNumSessions = function () {
 }
 
 CM.prototype.walletGetNotifications = function (fromDate, pagingInfo) {
-  var pars = addPagingInfo({ fromDate: fromDate }, pagingInfo)
+  const pars = addPagingInfo({ fromDate: fromDate }, pagingInfo)
   return this.simpleRpcSlice(C.WALLET_GET_NOTIFICATIONS, pars)
+}
+
+CM.prototype.walletGetAccountsStatus = async function (pubIds, fromDate, pagingInfo) {
+  if (!pubIds || pubIds.length == 0)
+    return failPromiseWithBadParam("pubIds", "missing pubIds")
+  const pars = addPagingInfo({ pubIds, fromDate }, pagingInfo)
+  const res = await this.rpc(C.WALLET_GET_ACCOUNTS_STATUS, pars)
+  return res.accounts
 }
 
 CM.prototype.walletGetInfo = function () {
@@ -1484,7 +1502,7 @@ CM.prototype.ptxPrepare = function (account, recipients, options) {
   }
   Object.keys(options)
     .filter(k => k !== 'autoSignIfValidated')
-    .forEach(k =>  params.ptxOptions[k] = options[k])
+    .forEach(k => params.ptxOptions[k] = options[k])
   logger.log("[CM ptxPrepare] params:", params)
   return this.rpc(C.ACCOUNT_PTX_PREPARE, params)
 }
@@ -1699,32 +1717,32 @@ CM.prototype.ensureAccountInfo = function (account) {
     return Q(account)
 }
 
-const SLP_PREFIX = Buffer.from("6a04534c50000101",'hex')  // OP_RETURN SLP\0 01
-const SLP_ACTION_GENESIS = Buffer.from("0747454e45534953",'hex')  // GENESIS
-const SLP_ACTION_MINT = Buffer.from("044d494e54",'hex')  // MINT
-const SLP_ACTION_SEND = Buffer.from("0453454e44",'hex')  // SEND
+const SLP_PREFIX = Buffer.from("6a04534c50000101", 'hex')  // OP_RETURN SLP\0 01
+const SLP_ACTION_GENESIS = Buffer.from("0747454e45534953", 'hex')  // GENESIS
+const SLP_ACTION_MINT = Buffer.from("044d494e54", 'hex')  // MINT
+const SLP_ACTION_SEND = Buffer.from("0453454e44", 'hex')  // SEND
 const SLP_ACTIONS = [SLP_ACTION_SEND, SLP_ACTION_GENESIS, SLP_ACTION_MINT]
 function isSlp(tx) {
   if (tx.outs.length < 2)
-   return false
+    return false
   let script = tx.outs[0].script
-  if (SLP_PREFIX.compare(script.slice(0,SLP_PREFIX.length)) !== 0)
+  if (SLP_PREFIX.compare(script.slice(0, SLP_PREFIX.length)) !== 0)
     return false;
   script = script.slice(SLP_PREFIX.length)
-  return SLP_ACTIONS.some(action => action.compare(script.slice(0,action.length)) == 0)
+  return SLP_ACTIONS.some(action => action.compare(script.slice(0, action.length)) == 0)
 }
-  //const SLP_SEND_PREFIX = Buffer.from("6a04534c500001010453454e44",'hex')
-  //return SLP_SEND_PREFIX.compare(out.script.slice(0,SLP_SEND_PREFIX.length)) == 0
-  // const script = Bitcoin.script.decompile(out.script)
-  // console.log("REMOVEME RAW SCRIPT", out.script)
-  // console.log("REMOVEME DECOMPILED SCRIPT", script)
-  // console.log("S[0]: "+script[0]+" s[1]: "+script[1]+" s[2]: "+script[2])
-  // if (script.length <= 4)
-  //   return false
-  // return (script[0] == 106 && script[1].compare(SLP_PREFIX) && script[3].compare(SLP_ACTION_SEND))
-  // //   return false
-  // // const part = script[1]
-  // // return SLP_SEND_PREFIX.compare(part.slice(0,SLP_SEND_PREFIX.length)) == 0
+//const SLP_SEND_PREFIX = Buffer.from("6a04534c500001010453454e44",'hex')
+//return SLP_SEND_PREFIX.compare(out.script.slice(0,SLP_SEND_PREFIX.length)) == 0
+// const script = Bitcoin.script.decompile(out.script)
+// console.log("REMOVEME RAW SCRIPT", out.script)
+// console.log("REMOVEME DECOMPILED SCRIPT", script)
+// console.log("S[0]: "+script[0]+" s[1]: "+script[1]+" s[2]: "+script[2])
+// if (script.length <= 4)
+//   return false
+// return (script[0] == 106 && script[1].compare(SLP_PREFIX) && script[3].compare(SLP_ACTION_SEND))
+// //   return false
+// // const part = script[1]
+// // return SLP_SEND_PREFIX.compare(part.slice(0,SLP_SEND_PREFIX.length)) == 0
 
 CM.prototype.analyzeTx = function (state, options) {
   if (options && options.skipAnalyze)
@@ -1831,7 +1849,7 @@ CM.prototype.analyzeTx = function (state, options) {
       if (!recipients[i].validated)
         error = "Missing recipient"
   const extimatedTxSize = this.estimateTxSizeFromAccountInfo(this.peekAccountInfo(account), tx)
-  logger.log("coin: " + coin +" feeInfos", this.feeInfos)
+  logger.log("coin: " + coin + " feeInfos", this.feeInfos)
   const maxFeePerByte = (this.feeInfos && this.feeInfos[coin]) ?
     this.feeInfos[coin].maximumAcceptable :
     this.feeApi.getHardcodedMaxFeePerByte(coin).maximumAcceptable
@@ -1850,7 +1868,7 @@ CM.prototype.analyzeTx = function (state, options) {
       error = "Change address not validated"
   //    else if (amountToUnknown !== 0)
   //      error = "Destination address not validated"
-  logger.log("[ANALYZE] isSlp: "+isSlp(tx)+" amountInOur: " + amountInOur + " amountInOther: " + amountInOther + " amountToRecipients: "
+  logger.log("[ANALYZE] isSlp: " + isSlp(tx) + " amountInOur: " + amountInOur + " amountInOther: " + amountInOther + " amountToRecipients: "
     + amountToRecipients + " amountToChange: " + amountToChange + " amountToUnknown: " + amountToUnknown)
   logger.log("[ANALYZE] fees: " + fees + " maxAcceptableFees: " + maximumAcceptableFee + " ptx.fees: " + ptx.fees
     + " extimatedTxSize: " + extimatedTxSize + " error: " + error + " maxFeePerByte: " + maxFeePerByte)
@@ -2217,10 +2235,10 @@ CM.prototype.sessionSetParams = function (params, tfa) {
 CM.prototype.getPaymentAddressViaRest = function (pubId, options) {
   let fetchParams = "?"
   if (options.info)
-    fetchParams += "&info="+encodeURIComponent(options.info)
+    fetchParams += "&info=" + encodeURIComponent(options.info)
   if (options.address)
-    fetchParams += "&address="+encodeURIComponent(options.address)
-  return fetch(this.peekRestPrefix() + "/account/"+pubId+"/getPaymentAddress"+fetchParams, {
+    fetchParams += "&address=" + encodeURIComponent(options.address)
+  return fetch(this.peekRestPrefix() + "/account/" + pubId + "/getPaymentAddress" + fetchParams, {
     method: 'POST',
     headers: { "user-agent": C.MELIS_USER_AGENT }
   }).then(res => res.json())
@@ -2286,11 +2304,11 @@ CM.prototype.slpPrepareMintPtx = async function (account, mintData, options) {
 }
 
 CM.prototype.slpGetTokenInfoByTicker = async function (ticker) {
-  return await this.rpc(C.SLP_GET_TOKEN_INFO_BY_TICKER+"/"+ticker)
+  return await this.rpc(C.SLP_GET_TOKEN_INFO_BY_TICKER + "/" + ticker)
 }
 
 CM.prototype.slpGetTokenInfoByTokenId = async function (tokenId) {
-  return await this.rpc(C.SLP_GET_TOKEN_INFO_BY_TOKENID+"/"+tokenId)
+  return await this.rpc(C.SLP_GET_TOKEN_INFO_BY_TOKENID + "/" + tokenId)
 }
 
 CM.prototype.slpGetTokenInfos = async function () {
@@ -2298,7 +2316,7 @@ CM.prototype.slpGetTokenInfos = async function () {
 }
 
 CM.prototype.slpTxInfoGet = async function (id) {
-  const res = await this.rpc(C.SLP_GET_TX_INFO, { data: id  })
+  const res = await this.rpc(C.SLP_GET_TX_INFO, { data: id })
   return res.slpTxInfo
 }
 
