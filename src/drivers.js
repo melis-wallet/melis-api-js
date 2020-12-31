@@ -654,13 +654,10 @@ const RLTC = Object.assign({}, TLTC)
 const BSV = Object.assign({}, BCH)
 const TBSV = Object.assign({}, TBCH)
 const RBSV = Object.assign({}, RBCH)
-// const BSV_COMMON = {
-//   toScriptSignature: toScriptSignatureCash,
-//   hashForSignature: hashForSignatureCash,
-// }
-// const BSV = Object.assign({}, BTC, BSV_COMMON)
-// const TBSV = Object.assign({}, TBTC, BSV_COMMON)
-// const RBSV = Object.assign({}, RBTC, BSV_COMMON)
+
+const ABC = Object.assign({}, BCH)
+const TABC = Object.assign({}, TBCH)
+const RABC = Object.assign({}, RBCH)
 
 const DOGE = Object.assign({}, BTC, { network: NETWORKS.dogeProdnet })
 const TDOG = Object.assign({}, DOGE, { network: NETWORKS.dogeTestnet })
@@ -697,6 +694,7 @@ const drivers = {
   LTC, TLTC, RLTC,
   GRS, TGRS, RGRS,
   BSV, TBSV, RBSV,
+  ABC, TABC, RABC,
   DOGE, TDOG, RDOG
 }
 
