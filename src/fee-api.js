@@ -29,6 +29,7 @@ const HARDCODED_LTC_FEES = {
   slowFee: 100
 }
 
+const HARDCODED_ABC_FEES = HARDCODED_BCH_FEES
 const HARDCODED_BSV_FEES = HARDCODED_BCH_FEES
 const HARDCODED_DOGE_FEES = HARDCODED_BCH_FEES
 
@@ -220,6 +221,20 @@ feeProviders[C.COIN_TEST_BSV] = {
 feeProviders[C.COIN_REGTEST_BSV] = {
   'hardcoded': () => Q(HARDCODED_BSV_FEES),
   'melis': () => getNetworkFeesMelis(C.COIN_REGTEST_BSV)
+}
+
+// Bitcoin ABC
+feeProviders[C.COIN_PROD_ABC] = {
+  'hardcoded': () => Q(HARDCODED_ABC_FEES),
+  'melis': () => getNetworkFeesMelis(C.COIN_PROD_ABC)
+}
+feeProviders[C.COIN_TEST_ABC] = {
+  'hardcoded': () => Q(HARDCODED_ABC_FEES),
+  'melis': () => getNetworkFeesMelis(C.COIN_TEST_ABC)
+}
+feeProviders[C.COIN_REGTEST_ABC] = {
+  'hardcoded': () => Q(HARDCODED_ABC_FEES),
+  'melis': () => getNetworkFeesMelis(C.COIN_REGTEST_ABC)
 }
 
 // DOGE
