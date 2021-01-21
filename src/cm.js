@@ -310,6 +310,10 @@ CM.prototype.isProdNet = function () {
 // Coin dependent functions
 //
 
+function getSupportedCoins() {
+  return Object.keys(CoinDrivers)
+}
+
 function getDriver(coin) {
   const driver = CoinDrivers[coin]
   if (!driver)
@@ -1092,7 +1096,8 @@ CM.prototype.walletOpen = function (seed, params) {
       signatureR: signature.r.toString(), signatureS: signature.s.toString(),
       sessionName: params.sessionName,
       deviceId: params.deviceId,
-      usePinAsTfa: params.usePinAsTfa
+      usePinAsTfa: params.usePinAsTfa,
+      supportedCoins: getSupportedCoins()
     }).then(res => {
       const wallet = res.wallet
       logger.log("[CM] walletOpen pubKey:" + wallet.pubKey + self.isProdNet() + " #accounts: " + Object.keys(wallet.accounts).length + " isProdNet: ")
@@ -1157,7 +1162,8 @@ CM.prototype.walletRegister = function (seed, params) {
     xpub: self.hdNodeToBase58Xpub(loginKey),
     sessionName: params.sessionName,
     deviceId: params.deviceId,
-    usePinAsTfa: params.usePinAsTfa
+    usePinAsTfa: params.usePinAsTfa,
+    supportedCoins: getSupportedCoins()
   }).then(res => {
     logger.log("[CM] walletRegister: ", res)
     walletOpen(self, hd, res.wallet)
@@ -2065,7 +2071,6 @@ CM.prototype.tfaEnrollStart = function (params, tfa) {
     name: params.name,
     value: params.value,
     data: params.data,
-    address: params.appId,
     meta: params.meta,
     tfa: tfa
   }).then(function (res) {
@@ -2114,8 +2119,7 @@ CM.prototype.tfaDeviceSetNotifications = function (params, tfa) {
 CM.prototype.tfaAuthStart = function (params) {
   return this.rpc(C.TFA_AUTH_REQUEST, {
     name: params.name,
-    value: params.value,
-    address: params.appId
+    value: params.value
   }).then(function (res) {
     return res.tfaRes
   })
