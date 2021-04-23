@@ -1353,9 +1353,9 @@ CM.prototype.accountUpdate = function (account, options) {
   })
 }
 
-CM.prototype.accountDelete = function (account) {
+CM.prototype.accountDelete = function (account, tfa) {
   const self = this
-  return this.rpc(C.ACCOUNT_DELETE, { pubId: account.pubId }).then(res => {
+  return this.rpc(C.ACCOUNT_DELETE, { pubId: account.pubId , tfa}).then(res => {
     delete self.walletData.accounts[account.pubId]
     delete self.walletData.balances[account.pubId]
     delete self.walletData.infos[account.pubId]
