@@ -166,8 +166,8 @@ function decodeBitcoinCashAddress(address, self) {
 
   if (decoded)
     if (decoded.prefix === expectedPrefix ||
-       (decoded.prefix === PREFIX_SLPTEST && (expectedPrefix == PREFIX_TESTNET || expectedPrefix === PREFIX_REGTEST)) ||
-       (decoded.prefix === PREFIX_SLPMAIN && (expectedPrefix == PREFIX_MAINNET)))
+      (decoded.prefix === PREFIX_SLPTEST && (expectedPrefix == PREFIX_TESTNET || expectedPrefix === PREFIX_REGTEST)) ||
+      (decoded.prefix === PREFIX_SLPMAIN && (expectedPrefix == PREFIX_MAINNET)))
       return Object.assign(decoded, {
         version: decoded.type === "P2SH" ? self.network.scriptHash : self.network.pubKeyHash,
         hash: Buffer.from(decoded.hash)
@@ -269,12 +269,12 @@ function toScriptSignatureCash(signature, hashFlags) {
 }
 
 function toLegacyAddress(address, self) {
-  const {version, hash} = decodeBitcoinCashAddress(address, self)
+  const { version, hash } = decodeBitcoinCashAddress(address, self)
   return Bitcoin.address.toBase58Check(Buffer.from(hash), version)
 }
 
 function toCashAddress(address, self) {
-  const {version, hash} = decodeBitcoinCashAddress(address, self)
+  const { version, hash } = decodeBitcoinCashAddress(address, self)
   let type
   if (version === self.network.pubKeyHash)
     type = 'P2PKH'
@@ -286,7 +286,7 @@ function toCashAddress(address, self) {
 }
 
 function toSlpAddress(address, self) {
-  const {version, hash} = decodeBitcoinCashAddress(address, self)
+  const { version, hash } = decodeBitcoinCashAddress(address, self)
   let type
   if (version === self.network.pubKeyHash)
     type = 'P2PKH'
@@ -383,7 +383,8 @@ function derivePubKeys(xpubs, chain, hdIndex) {
 }
 
 function extractPubKeyFromOutputScript(script) {
-  var type = bscript.classifyOutput(script)
+  const type = bscript.classifyOutput(script)
+  console.log("type: " + type + " script/pubkey: ", script)
   if (type === "pubkey") {
     //return Bitcoin.ECPubKey.fromBuffer(script.chunks[0])
     var decoded = bscript.decompile(script)
@@ -672,10 +673,10 @@ const GRS = Object.assign({}, BTC,
     toOutputScript: toOutputScriptGrs,
     buildAddressFromScript: buildAddressFromScriptGrs,
     hdNodeFromBase58: hdNodeFromBase58Grs,
-    hdNodeToBase58Xpub: function(hd) {
+    hdNodeToBase58Xpub: function (hd) {
       return hdNodeToBase58Grs(hd, false, this)
     },
-    hdNodeToExtendedBase58: function(hd) {
+    hdNodeToExtendedBase58: function (hd) {
       return hdNodeToBase58Grs(hd, true, this)
     },
     pubkeyToAddress: pubkeyToAddressGrs,

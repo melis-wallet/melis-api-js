@@ -29,9 +29,16 @@ const HARDCODED_LTC_FEES = {
   slowFee: 100
 }
 
+const HARDCODED_DOGE_FEES = {
+  detail: { provider: "hardcoded" },
+  maximumAcceptable: 900000,
+  fastestFee: 500000,
+  mediumFee: 150000,
+  slowFee: 50000
+}
+
 const HARDCODED_ABC_FEES = HARDCODED_BCH_FEES
 const HARDCODED_BSV_FEES = HARDCODED_BCH_FEES
-const HARDCODED_DOGE_FEES = HARDCODED_BCH_FEES
 
 function getNetworkFeesEarnCom() {
   return fetch("https://bitcoinfees.earn.com/api/v1/fees/recommended").then(res => {
