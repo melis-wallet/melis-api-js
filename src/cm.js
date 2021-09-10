@@ -56,9 +56,11 @@ function updateWalletInfo(target, info) {
 
 function updateAccount(target, accountData, hdWallet) {
   const account = accountData.account
-  target.walletData.accounts[account.pubId] = account
+  if (!target.walletData.accounts[account.pubId])
+    target.walletData.accounts[account.pubId] = account
   target.walletData.balances[account.pubId] = accountData.balance
-  target.walletData.infos[account.pubId] = accountData.accountInfo
+  if (accountData.accountInfo)
+    target.walletData.infos[account.pubId] = accountData.accountInfo
   if (hdWallet)
     target.walletData.keys[account.num] = target.deriveAccountHdKey(hdWallet, account.num, account.coin)
 }
@@ -89,6 +91,8 @@ function emitEvent(target, event, params) {
     logger.log("[CM emitEvent] " + event + " params: " + JSON.stringify(params))
   if (event === C.EVENT_CONFIG)
     updateServerConfig(target, params)
+  if (event === C.EVENT_ACCOUNT_UPDATED)
+    updateAccount(target, params)
   var listeners = target.listeners(event)
   if (!listeners.length) {
     //logger.log("[CM emitEvent] nessun listener per l'evento '" + event + "'")
@@ -909,7 +913,7 @@ CM.prototype.subscribeToTickersHistory = function (period, currency, callback) {
 //
 
 CM.prototype.getPaymentAddressForAccount = function (accountIdOrAlias, param) {
-  var opts = { name: accountIdOrAlias }
+  const opts = { name: accountIdOrAlias }
   if (param) {
     if (param.memo)
       opts.data = param.memo
@@ -1483,9 +1487,7 @@ CM.prototype.txInfoGet = function (id) {
 
 CM.prototype.txInfoSet = function (id, labels, meta) {
   return this.rpc(C.ACCOUNT_SET_TX_INFO, {
-    data: id,
-    labels: labels,
-    meta: meta
+    data: id, labels: labels, meta: meta
   }).then(function (res) {
     //console.log("[CM SET_TX_INFO] res: " + JSON.stringify(res))
     return res.txInfo
@@ -1514,10 +1516,8 @@ CM.prototype.ptxPrepare = function (account, recipients, options) {
 }
 
 CM.prototype.ptxFeeBump = function (id, options) {
-  if (!options || !options.feeMultiplier)
-    throwBadParamEx("options.feeMultiplier", "Missing feeMultiplier")
-  var ptxOptions = { feeMultiplier: options.feeMultiplier }
-  var params = { data: id, ptxOptions: ptxOptions }
+  const ptxOptions = { feeMultiplier: options.feeMultiplier, satoshisPerByte: options.satoshisPerByte}
+  const params = { data: id, ptxOptions: ptxOptions}
   return this.rpc(C.ACCOUNT_PTX_FEE_BUMP, params)
 }
 
@@ -1790,6 +1790,7 @@ CM.prototype.analyzeTx = function (state, options) {
   // Calc amount for defined recipients, for the change, and to unknown addresses
 
   for (let j = 0; j < recipients.length; j++) {
+    //logger.log(`VALIDATING recipient ${j} on ${coin}: ${recipients[j].address}`)
     // If recipients have zero amount or are Melis accounts we need to trust the server
     if (!recipients[j].amount || recipients[j].pubId)
       recipients[j].validated = true

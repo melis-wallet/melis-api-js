@@ -29,6 +29,14 @@ const HARDCODED_LTC_FEES = {
   slowFee: 100
 }
 
+const HARDCODED_REGTEST_LTC_FEES = {
+  detail: { provider: "hardcoded" },
+  maximumAcceptable: 50000,
+  fastestFee: 2000,
+  mediumFee: 1500,
+  slowFee: 1000
+}
+
 const HARDCODED_DOGE_FEES = {
   detail: { provider: "hardcoded" },
   maximumAcceptable: 900000,
@@ -198,7 +206,7 @@ feeProviders[C.COIN_TEST_LTC] = {
   'melis': () => getNetworkFeesMelis(C.COIN_TEST_LTC)
 }
 feeProviders[C.COIN_REGTEST_LTC] = {
-  'hardcoded': () => Q(HARDCODED_LTC_FEES),
+  'hardcoded': () => Q(HARDCODED_REGTEST_LTC_FEES),
   'melis': () => getNetworkFeesMelis(C.COIN_REGTEST_LTC)
 }
 

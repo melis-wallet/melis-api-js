@@ -20,19 +20,19 @@
     "bitcoinjs-lib": "^3.3.2",
     "bitcoinjs-message": "^2.0.0",
     "cashaddrjs": "melis-wallet/cashaddrjs",
-    "detect-node": "^2.0.4",
+    "detect-node": "^2.1.0",
     "ecurve": "^1.0.6",
     "groestl-hash-js": "^1.0.0",
     "isomorphic-fetch": "^3.0.0",
     "q": "1.x",
     "randombytes": "^2.1.0",
     "sjcl-all": "^1.0.1",
-    "sockjs-client": "^1.5.0",
+    "sockjs-client": "^1.5.1",
     "webstomp-client": "^1.2.6",
-    "ws": "^7.4.2"
+    "ws": "^8.2.0"
   },
   "optionalDependencies": {
     "bufferutil": "^4.0.3",
-    "utf-8-validate": "^5.0.4"
+    "utf-8-validate": "^5.0.5"
   }
 }

@@ -385,7 +385,7 @@ function derivePubKeys(xpubs, chain, hdIndex) {
 function extractPubKeyFromOutputScript(script) {
   const type = bscript.classifyOutput(script)
   console.log("type: " + type + " script/pubkey: ", script)
-  if (type === "pubkey") {
+  if (type === "pubkeyhash") {
     //return Bitcoin.ECPubKey.fromBuffer(script.chunks[0])
     var decoded = bscript.decompile(script)
     //logger.log("Decoded:"); logger.log(decoded)
