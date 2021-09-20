@@ -103,7 +103,7 @@ function emitEvent(target, event, params) {
 }
 
 function buildMelisErrorFromServerEx(err) {
-  var res = new MelisError(err.ex, err.msg)
+  const res = new MelisError(err.ex, err.msg)
   for (var prop in err) {
     if (prop !== 'ex' && prop !== 'msg')
       res[prop] = err[prop]
@@ -113,7 +113,7 @@ function buildMelisErrorFromServerEx(err) {
 
 function buildBadParamEx(paramName, msg) {
   //return {ex: 'CmBadParamException', param: paramName, msg: msg}
-  var err = new MelisError('CmBadParamException', msg)
+  const err = new MelisError('CmBadParamException', msg)
   err.param = paramName
   return err
 }
@@ -230,10 +230,10 @@ function rpcErrorHandler(target, res) {
   logger.log("[STOMP] RPC Exception:", res)
   target.lastReceivedMsgDate = new Date()
   //var messageId = res.headers.myId
-  var message = JSON.parse(res.body)
-  var messageId = message.id
+  const message = JSON.parse(res.body)
+  const messageId = message.id
   if (messageId) {
-    var rpcData = target.waitingReplies[messageId]
+    const rpcData = target.waitingReplies[messageId]
     delete target.waitingReplies[messageId]
     if (rpcData) {
       if (message.ex === C.EX_TOO_MANY_REQUESTS && rpcData.numRetries < target.rpcMaxRetries) {

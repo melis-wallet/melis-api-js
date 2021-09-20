@@ -18,7 +18,6 @@
   },
   "dependencies": {
     "bitcoinjs-lib": "^3.3.2",
-    "bitcoinjs-message": "^2.0.0",
     "cashaddrjs": "melis-wallet/cashaddrjs",
     "detect-node": "^2.1.0",
     "ecurve": "^1.0.6",
@@ -26,10 +25,11 @@
     "isomorphic-fetch": "^3.0.0",
     "q": "1.x",
     "randombytes": "^2.1.0",
+    "secp256k1": "^3.8.0",
     "sjcl-all": "^1.0.1",
-    "sockjs-client": "^1.5.1",
+    "sockjs-client": "^1.5.2",
     "webstomp-client": "^1.2.6",
-    "ws": "^8.2.0"
+    "ws": "^8.2.2"
   },
   "optionalDependencies": {
     "bufferutil": "^4.0.3",
